@@ -1,0 +1,79 @@
+# =========================
+# Environment
+# =========================
+.env
+.env.*
+!.env.example
+
+
+# =========================
+# Python / FastAPI
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+*.egg-info/
+
+
+# =========================
+# Flutter / Dart
+# =========================
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Android
+**/android/.gradle/
+**/android/local.properties
+
+# iOS
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+
+
+# =========================
+# IDE / Editors
+# =========================
+.vscode/
+.idea/
+
+*.suo
+*.sw?
+
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+
+# =========================
+# Local Files
+# =========================
+*.local
