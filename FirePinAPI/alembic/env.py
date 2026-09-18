@@ -7,6 +7,19 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import settings
 from app.db.base import Base
+from app.features.auth.model import UserSession  # noqa: F401
+from app.features.device_tokens.model import DeviceToken  # noqa: F401
+from app.features.fire_reports.model import FireReport  # noqa: F401
+from app.features.municipalities.model import (  # noqa: F401
+    Municipality,
+    MunicipalitySession,
+)
+from app.features.report_images.model import ReportImage  # noqa: F401
+from app.features.users.model import User  # noqa: F401
+from app.features.volunteers.model import (  # noqa: F401
+    Volunteer,
+    VolunteerApplication,
+)
 
 config = context.config
 

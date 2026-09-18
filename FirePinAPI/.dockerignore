@@ -21,6 +21,7 @@ tests
 
 .env
 .env.*
+firebase-service-account*.json
 
 .vscode
 .idea

@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -12,6 +15,14 @@ class Settings(BaseSettings):
     DATABASE_NAME: str
 
     CORS_ORIGINS: str = "*"
+
+    SECRET_KEY: str = Field(min_length=32)
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(gt=0)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(gt=0)
+
+    UPLOAD_ROOT: Path
+    FIREBASE_CREDENTIALS_PATH: Path | None = None
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
@@ -35,6 +46,13 @@ class Settings(BaseSettings):
         return [
             origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
         ]
+
+    @field_validator("FIREBASE_CREDENTIALS_PATH", mode="before")
+    @classmethod
+    def empty_firebase_path_is_none(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return value
 
 
 settings = Settings()

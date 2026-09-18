@@ -68,6 +68,7 @@ services:
 
     volumes:
       - ./FirePinAPI:/app
+      - uploads_data:/app/uploads
 
     depends_on:
       postgres:
@@ -79,3 +80,4 @@ services:
 # =========================
 volumes:
   postgres_data:
+  uploads_data:
