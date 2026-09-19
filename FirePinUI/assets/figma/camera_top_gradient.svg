@@ -1,0 +1,15 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="390" height="190" viewBox="0 0 390 190" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Top legibility gradient" clip-path="url(#clip0_0_9)">
+<path id="Vector" d="M390 0H0V190H390V0Z" fill="url(#paint0_linear_0_9)"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_9" x1="0" y1="0" x2="0" y2="190" gradientUnits="userSpaceOnUse">
+<stop stop-color="#061613" stop-opacity="0.7"/>
+<stop offset="0.62" stop-color="#061613" stop-opacity="0.34"/>
+<stop offset="1" stop-color="#061613" stop-opacity="0"/>
+</linearGradient>
+<clipPath id="clip0_0_9">
+<rect width="390" height="190" fill="white"/>
+</clipPath>
+</defs>
+</svg>
