@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../app/app_services.dart';
-import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
 import '../home/home_screen.dart';
+import '../incidents/incident_controller.dart';
 import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
@@ -40,6 +40,7 @@ class OnboardingFlow extends StatefulWidget {
 class _OnboardingFlowState extends State<OnboardingFlow> {
   final _navigator = GlobalKey<NavigatorState>();
   final _session = OnboardingSession();
+  final _incidents = IncidentController();
   String _current = OnboardingStep.welcome.name;
   late final _observer = _FlowObserver((name) => _current = name);
 
@@ -127,29 +128,41 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       onBack: _back,
       onSubmitted: (status) {
         _session.applicationStatus = status;
-        _go(OnboardingStep.pending, clear: true);
+
+        switch (_session.destination) {
+          case AccountDestination.home:
+            _go(OnboardingStep.home, clear: true);
+          case AccountDestination.pendingApproval:
+            _go(OnboardingStep.pending, clear: true);
+          case AccountDestination.volunteerWarning:
+            _go(OnboardingStep.volunteerWarning);
+        }
       },
     ),
     OnboardingStep.pending => const VolunteerPendingScreen(),
     OnboardingStep.home => HomeScreen(
       hasLocation: _session.location != null,
       onReport: () => _go(OnboardingStep.fireCamera),
+      session: _session,
+      incidentController: _incidents,
     ),
     OnboardingStep.fireCamera => FireCameraScreen(
       services: widget.services,
       session: _session,
       onClose: _back,
-      onSubmitted: () {
-        _go(OnboardingStep.home, clear: true);
-        showFeedback(
-          context,
-          'تم تجهيز البلاغ بنجاح في النسخة التجريبية. لم يُرسل إلى الجهات المختصة.',
+      onSubmitted: (photo) {
+        _incidents.report(
+          location: _session.location!,
+          reporterPhone: _session.phone,
+          photo: photo,
         );
+        _go(OnboardingStep.home, clear: true);
       },
     ),
   };
   @override
   void dispose() {
+    _incidents.dispose();
     _session.clearSensitiveData();
     super.dispose();
   }

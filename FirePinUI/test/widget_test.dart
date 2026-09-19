@@ -1,7 +1,11 @@
 import 'package:firepin_ui/app/firepin_app.dart';
 import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/core/ui/live_camera.dart';
+import 'package:firepin_ui/features/account/account_screen.dart';
+import 'package:firepin_ui/features/alerts/alerts_screen.dart';
 import 'package:firepin_ui/features/home/home_screen.dart';
+import 'package:firepin_ui/features/incidents/incident_controller.dart';
+import 'package:firepin_ui/features/incidents/incident_screen.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/permission_screens.dart';
@@ -374,7 +378,7 @@ void main() {
                 reports: reports,
               ),
               session: OnboardingSession(),
-              onSubmitted: () => submitted = true,
+              onSubmitted: (_) => submitted = true,
               onClose: () {},
             ),
           ),
@@ -392,4 +396,117 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'citizen alerts, acknowledgement and account are distinct views',
+    (tester) async {
+      mobileSize(tester);
+      final session = OnboardingSession()
+        ..role = UsageRole.citizen
+        ..phone = '0591234567';
+      final incidents = IncidentController()
+        ..report(
+          location: const LocationFix(31.78, 35.24, 10),
+          reporterPhone: '0590000000',
+          photo: testPhoto,
+        );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: HomeScreen(
+              hasLocation: true,
+              onReport: () {},
+              session: session,
+              incidentController: incidents,
+            ),
+          ),
+        ),
+      );
+      await tapLabel(tester, 'التنبيهات');
+      expect(find.byType(AlertsScreen), findsOneWidget);
+      expect(find.textContaining('حادث نشط الآن'), findsOneWidget);
+      await tapLabel(tester, 'عرض على الخريطة');
+      expect(find.byType(IncidentScreen), findsOneWidget);
+      expect(find.text('تنبيه حريق قريب'), findsOneWidget);
+      await tapLabel(tester, 'تم الاطلاع');
+      expect(find.text('تم إيقاف التنبيه'), findsOneWidget);
+      await tapLabel(tester, 'الحساب');
+      expect(find.byType(AccountScreen), findsOneWidget);
+      expect(find.text('استخدام التطبيق كمواطن'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('volunteer call advances to active response', (tester) async {
+    mobileSize(tester);
+    final session = OnboardingSession()..role = UsageRole.volunteer;
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591234567',
+        photo: testPhoto,
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: session,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    await tapLabel(tester, 'التنبيهات');
+    expect(find.text('نداء حريق جديد'), findsWidgets);
+    await tapLabel(tester, 'عرض الحادث');
+    expect(find.text('نداء حريق جديد'), findsOneWidget);
+    await tapLabel(tester, 'تلبية النداء');
+    expect(find.text('أنت تستجيب لهذا البلاغ'), findsOneWidget);
+    expect(find.text('استجابة نشطة'), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+    await tapLabel(tester, 'الحساب');
+    expect(find.text('✓ متطوع معتمد'), findsOneWidget);
+    expect(find.text('استجابة نشطة · أنت في الطريق'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reporter status progresses to volunteer incoming', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final session = OnboardingSession()..phone = '0591234567';
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: session.phone,
+        photo: testPhoto,
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: session,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('تم استلام البلاغ'), findsOneWidget);
+    expect(find.text('جارٍ البحث'), findsOneWidget);
+    incidents.acceptByVolunteer();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('متطوع في الطريق إليك'), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+    await tapLabel(tester, 'رؤية الصورة المرسلة');
+    expect(find.text('الصورة المرسلة'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

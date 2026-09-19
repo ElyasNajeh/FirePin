@@ -1,129 +1,299 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
+
+import '../../core/ui/app_shell.dart';
 import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
 import '../../theme/app_theme.dart';
+import '../account/account_screen.dart';
+import '../alerts/alerts_screen.dart';
+import '../incidents/incident_controller.dart';
+import '../incidents/incident_screen.dart';
+import '../onboarding/onboarding_models.dart';
 
-/// Figma 59:2. Bundled reference map; no map provider or network access.
-class HomeScreen extends StatelessWidget {
+/// Authenticated product shell. All role views observe one incident controller.
+class HomeScreen extends StatefulWidget {
   const HomeScreen({
+    super.key,
+    required this.hasLocation,
+    required this.onReport,
+    this.session,
+    this.incidentController,
+  });
+
+  final bool hasLocation;
+  final VoidCallback onReport;
+  final OnboardingSession? session;
+  final IncidentController? incidentController;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  AppSection _section = AppSection.home;
+  late final bool _ownsController = widget.incidentController == null;
+  late final IncidentController _incidents =
+      widget.incidentController ?? IncidentController();
+  late final OnboardingSession _fallbackSession = OnboardingSession()
+    ..role = UsageRole.citizen
+    ..phone = '059 123 4567';
+
+  OnboardingSession get _session => widget.session ?? _fallbackSession;
+  FireIncident? get _incident => _incidents.incident;
+  bool get _isReporter {
+    final incident = _incident;
+    return incident != null &&
+        _session.phone.isNotEmpty &&
+        incident.reporterPhone == _session.phone;
+  }
+
+  bool get _isApprovedVolunteer =>
+      _session.role == UsageRole.volunteer &&
+      _session.applicationStatus != ApplicationStatus.pending;
+
+  @override
+  void dispose() {
+    if (_ownsController) _incidents.dispose();
+    super.dispose();
+  }
+
+  void _changeSection(AppSection section) => setState(() => _section = section);
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _incidents,
+    builder: (context, _) => AppShell(
+      section: _section,
+      onSectionChanged: _changeSection,
+      child: AnimatedSwitcher(
+        duration: AppMotion.reduced(context)
+            ? Duration.zero
+            : AppMotion.selection,
+        child: switch (_section) {
+          AppSection.home => _buildHome(),
+          AppSection.alerts => AlertsScreen(
+            key: const ValueKey('alerts'),
+            role: _session.role,
+            controller: _incidents,
+            isReporter: _isReporter,
+            onOpenIncident: () => _changeSection(AppSection.home),
+          ),
+          AppSection.account => AccountScreen(
+            key: const ValueKey('account'),
+            session: _session,
+            incidentController: _incidents,
+            onChangePin: () =>
+                showFeedback(context, 'تغيير رمز الدخول سيتوفر مع ربط الحساب.'),
+            onLogout: () => showFeedback(
+              context,
+              'تسجيل الخروج غير مفعّل في جلسة العرض المحلية.',
+            ),
+          ),
+        },
+      ),
+    ),
+  );
+
+  Widget _buildHome() {
+    final incident = _incident;
+    if (incident == null ||
+        (_isApprovedVolunteer && incident.volunteerDeclined)) {
+      return _isApprovedVolunteer
+          ? _VolunteerReadyContent(
+              key: const ValueKey('volunteer-ready'),
+              hasLocation: widget.hasLocation,
+              onOpenAlerts: () => _changeSection(AppSection.alerts),
+            )
+          : _CitizenHomeContent(
+              key: const ValueKey('home'),
+              hasLocation: widget.hasLocation,
+              onReport: widget.onReport,
+            );
+    }
+    final perspective = _isApprovedVolunteer
+        ? IncidentPerspective.volunteer
+        : _isReporter
+        ? IncidentPerspective.reporter
+        : IncidentPerspective.nearbyCitizen;
+    return IncidentScreen(
+      key: ValueKey('${incident.id}-${incident.stage}-$perspective'),
+      incident: incident,
+      perspective: perspective,
+      controller: _incidents,
+      onViewPhoto: () => showIncidentPhoto(context, incident),
+      onContactReporter: () => showReporterContact(context, incident),
+    );
+  }
+}
+
+Future<void> showIncidentPhoto(
+  BuildContext context,
+  FireIncident incident,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(
+        incident.photo == null ? 'صورة البلاغ' : 'الصورة المرسلة',
+        style: AppType.section,
+      ),
+      content: incident.photo == null
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.image_not_supported_outlined,
+                  size: 48,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'تم إرسال هذا البلاغ بدون صورة.',
+                  textAlign: TextAlign.center,
+                  style: AppType.caption,
+                ),
+              ],
+            )
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.memory(
+                incident.photo!,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Text(
+                  'تعذّر عرض الصورة داخل هذه الجلسة.',
+                  style: AppType.caption,
+                ),
+              ),
+            ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('إغلاق'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> showReporterContact(
+  BuildContext context,
+  FireIncident incident,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('التواصل مع المُبلّغ', style: AppType.section),
+            const SizedBox(height: 4),
+            Text(
+              'استخدم الرقم فقط لتنسيق الاستجابة لهذا الحادث.',
+              style: AppType.caption,
+            ),
+            const SizedBox(height: 14),
+            Directionality(
+              textDirection: TextDirection.ltr,
+              child: SelectableText(
+                incident.reporterPhone,
+                textAlign: TextAlign.center,
+                style: AppType.text(22, weight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(height: 14),
+            AppButton('إغلاق', onPressed: () => Navigator.pop(sheetContext)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _CitizenHomeContent extends StatelessWidget {
+  const _CitizenHomeContent({
     super.key,
     required this.hasLocation,
     required this.onReport,
   });
   final bool hasLocation;
   final VoidCallback onReport;
+
   @override
-  Widget build(BuildContext context) {
-    final safe = MediaQuery.paddingOf(context);
-    return Scaffold(
-      bottomNavigationBar: Container(
-        constraints: const BoxConstraints(minHeight: 90),
-        padding: EdgeInsets.fromLTRB(30, 10, 30, math.max(12, safe.bottom)),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: AppColors.outline)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: _NavItem(
-                'الرئيسية',
-                'nav_home',
-                selected: true,
-                onTap: () {},
-              ),
-            ),
-            Expanded(
-              child: _NavItem(
-                'التنبيهات',
-                'nav_alerts',
-                onTap: () => showFeedback(context, 'لا توجد تنبيهات جديدة.'),
-              ),
-            ),
-            Expanded(
-              child: _NavItem(
-                'الحساب',
-                'nav_account',
-                onTap: () =>
-                    showFeedback(context, 'إعدادات الحساب ستتوفر قريبًا.'),
-              ),
-            ),
-          ],
-        ),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _ReferenceMap(hasLocation: hasLocation),
+      const SizedBox(height: 24),
+      AppButton(
+        '🔥 إبلاغ عن حريق',
+        emergency: true,
+        minHeight: 72,
+        fontSize: 21,
+        onPressed: onReport,
       ),
-      body: SingleChildScrollView(
-        padding: EdgeInsets.only(top: math.max(46, safe.top + 12), bottom: 24),
+      const SizedBox(height: 10),
+      Text(
+        hasLocation
+            ? 'سيتم تحديد موقع البلاغ تلقائيًا'
+            : 'فعّل الموقع لتحديد مكان البلاغ عند الإرسال',
+        style: AppType.caption,
+        textAlign: TextAlign.center,
+      ),
+    ],
+  );
+}
+
+class _VolunteerReadyContent extends StatelessWidget {
+  const _VolunteerReadyContent({
+    super.key,
+    required this.hasLocation,
+    required this.onOpenAlerts,
+  });
+  final bool hasLocation;
+  final VoidCallback onOpenAlerts;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _ReferenceMap(hasLocation: hasLocation),
+      const SizedBox(height: 20),
+      SurfaceCard(
+        padding: 18,
+        shadow: true,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 44),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: BrandHeader(),
-                      ),
-                    ),
-                    _HeaderAction(
-                      'الحساب',
-                      'account',
-                      () => showFeedback(
-                        context,
-                        'إعدادات الحساب ستتوفر قريبًا.',
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    _HeaderAction(
-                      'الإشعارات',
-                      'notification',
-                      () => showFeedback(context, 'لا توجد إشعارات جديدة.'),
-                    ),
-                  ],
-                ),
+            Text(
+              '✓ متطوع معتمد',
+              style: AppType.text(
+                18,
+                weight: FontWeight.w700,
+                color: AppColors.primary,
               ),
             ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: _ReferenceMap(hasLocation: hasLocation),
+            const SizedBox(height: 2),
+            Text(
+              'أنت متاح لاستقبال نداءات الحرائق ضمن منطقتك.',
+              style: AppType.caption,
             ),
-            const SizedBox(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: AppButton(
-                '🔥 إبلاغ عن حريق',
-                emergency: true,
-                minHeight: 72,
-                fontSize: 21,
-                onPressed: onReport,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                hasLocation
-                    ? 'سيتم تحديد موقع البلاغ تلقائيًا'
-                    : 'فعّل الموقع لتحديد مكان البلاغ عند الإرسال',
-                style: AppType.caption,
-                textAlign: TextAlign.center,
-              ),
-            ),
+            const SizedBox(height: 12),
+            AppButton('عرض التنبيهات', onPressed: onOpenAlerts),
           ],
         ),
       ),
-    );
-  }
+    ],
+  );
 }
 
 class _ReferenceMap extends StatelessWidget {
   const _ReferenceMap({required this.hasLocation});
   final bool hasLocation;
+
   @override
   Widget build(BuildContext context) => Semantics(
     label: 'خريطة توضيحية. ليست خريطة جغرافية متصلة.',
@@ -224,6 +394,7 @@ class _MapChip extends StatelessWidget {
   const _MapChip({required this.child, required this.width});
   final Widget child;
   final double width;
+
   @override
   Widget build(BuildContext context) => Container(
     width: width,
@@ -243,71 +414,5 @@ class _MapChip extends StatelessWidget {
       ],
     ),
     child: child,
-  );
-}
-
-class _HeaderAction extends StatelessWidget {
-  const _HeaderAction(this.label, this.asset, this.onTap);
-  final String label;
-  final String asset;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    label: label,
-    button: true,
-    child: Material(
-      color: Colors.white,
-      shape: const CircleBorder(side: BorderSide(color: AppColors.outline)),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: SizedBox(
-          width: 40,
-          height: 40,
-          child: Center(child: FigmaIcon(asset, size: 22)),
-        ),
-      ),
-    ),
-  );
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem(
-    this.label,
-    this.asset, {
-    this.selected = false,
-    required this.onTap,
-  });
-  final String label;
-  final String asset;
-  final bool selected;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    selected: selected,
-    button: true,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FigmaIcon(asset, size: 24),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: AppType.text(
-                13,
-                height: 25,
-                weight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? AppColors.primary : AppColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
   );
 }

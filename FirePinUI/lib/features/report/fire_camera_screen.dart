@@ -18,7 +18,7 @@ class FireCameraScreen extends StatefulWidget {
   });
   final AppServices services;
   final OnboardingSession session;
-  final VoidCallback onSubmitted;
+  final ValueChanged<Uint8List?> onSubmitted;
   final VoidCallback onClose;
   @override
   State<FireCameraScreen> createState() => _FireCameraScreenState();
@@ -98,7 +98,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       );
       if (!mounted) return;
       HapticFeedback.mediumImpact();
-      widget.onSubmitted();
+      widget.onSubmitted(withPhoto ? _image : null);
     } on LocationFailure catch (error) {
       if (mounted) {
         setState(() {

@@ -14,9 +14,11 @@ permission/current position → citizen/volunteer selection.
 - Volunteer continues through confirmation to pending council approval. Pending
   has no Home access; navigation history cannot bypass that state.
 - Fire reporting supports a camera capture or no photo, obtains a current
-  location, simulates submission locally, then returns to Home with feedback
-  explicitly stating that nothing was sent to the authorities.
-- Normal login, municipality login, account, and alerts are local placeholders.
+  location, and creates one local incident shared by the reporter, nearby-citizen,
+  volunteer, alerts, map, and account views. The demo lifecycle covers waiting,
+  volunteer acceptance/en-route, acknowledgment, withdrawal, and resolution.
+- Account and alerts are role-aware demo screens. Normal and municipality login
+  remain local placeholders.
 
 This is an interactive frontend development build, **not an operational identity
 verification or emergency-reporting system**.
@@ -245,7 +247,7 @@ Final automated results:
 
 - `dart format lib test`: passed; 26 Dart files formatted, no remaining changes.
 - `flutter analyze`: passed, no issues found.
-- `flutter test`: passed, all 20 tests.
+- `flutter test`: passed, all 25 tests.
 - `git diff --check`: passed, no whitespace errors.
 - `flutter build apk --debug --no-pub`: passed.
 - Android manifest and iOS plist: parsed successfully as XML.
@@ -283,8 +285,9 @@ The tests use fake permission/camera/location services, never physical devices.
 They cover OTP acceptance/rejection/resend, PIN confirmation and retry, Arabic
 digits/phone validation, both complete onboarding branches, pending-state access
 restriction, camera denial/settings/lifecycle, location denial/settings/skip,
-camera and no-photo reporting, small-screen keyboard interaction, and all 16
-visual states at reference and accessible small-device sizes.
+camera and no-photo reporting, the shared incident lifecycle, role-specific
+alerts/accounts, photo preview, small-screen keyboard interaction, and all
+onboarding plus incident visual states at reference and accessible sizes.
 
 iOS native build/runtime validation is not available in this Windows workspace.
 Known Gradle/AGP/Kotlin deprecation warnings were left untouched.

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:firepin_ui/features/home/home_screen.dart';
+import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/permission_screens.dart';
@@ -35,6 +36,17 @@ void main() {
     gender: 'ذكر',
     address: 'القدس — الطور',
   );
+  IncidentController demoIncident({bool accepted = false}) {
+    final controller = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591111111',
+        photo: testPhoto,
+      );
+    if (accepted) controller.acceptByVolunteer();
+    return controller;
+  }
+
   final pages = <String, Widget Function()>{
     '01_welcome': () => WelcomeScreen(onStart: () {}),
     '02_camera_permission': () => CameraPermissionScreen(
@@ -71,10 +83,27 @@ void main() {
     ),
     '14_pending': () => const VolunteerPendingScreen(),
     '15_home': () => HomeScreen(hasLocation: true, onReport: () {}),
+    '17_nearby_alert': () => HomeScreen(
+      hasLocation: true,
+      onReport: () {},
+      incidentController: demoIncident(),
+    ),
+    '18_reporter_en_route': () => HomeScreen(
+      hasLocation: true,
+      onReport: () {},
+      session: OnboardingSession()..phone = '0591111111',
+      incidentController: demoIncident(accepted: true),
+    ),
+    '19_volunteer_route': () => HomeScreen(
+      hasLocation: true,
+      onReport: () {},
+      session: OnboardingSession()..role = UsageRole.volunteer,
+      incidentController: demoIncident(),
+    ),
     '16_fire_camera': () => FireCameraScreen(
       services: services,
       session: session,
-      onSubmitted: () {},
+      onSubmitted: (_) {},
       onClose: () {},
     ),
   };

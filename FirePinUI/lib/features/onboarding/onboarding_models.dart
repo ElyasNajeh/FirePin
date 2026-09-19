@@ -4,7 +4,7 @@ enum UsageRole { citizen, volunteer }
 
 enum AccountDestination { home, volunteerWarning, pendingApproval }
 
-enum ApplicationStatus { none, pending }
+enum ApplicationStatus { none, pending, approved }
 
 class IdentityData {
   const IdentityData({
@@ -83,9 +83,16 @@ class OnboardingSession {
     if (applicationStatus == ApplicationStatus.pending) {
       return AccountDestination.pendingApproval;
     }
-    return role == UsageRole.citizen
-        ? AccountDestination.home
-        : AccountDestination.volunteerWarning;
+
+    if (role == UsageRole.citizen) {
+      return AccountDestination.home;
+    }
+
+    if (applicationStatus == ApplicationStatus.approved) {
+      return AccountDestination.home;
+    }
+
+    return AccountDestination.volunteerWarning;
   }
 
   void clearSensitiveData() {
