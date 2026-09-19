@@ -54,27 +54,34 @@ void main() {
       onGranted: () {},
       onBack: () {},
     ),
-    '03_identity_camera': () =>
-        IdentityCaptureScreen(services: services, onVerified: (_, _) {}),
+    '03_identity_camera': () => IdentityCaptureScreen(
+      services: services,
+      onVerified: (_, _) {},
+      onBack: () {},
+    ),
     '04_identity_success': () => IdentitySuccessScreen(onContinue: () {}),
     '05_identity_review': () => IdentityReviewScreen(
       identity: identity,
       image: testPhoto,
       onContinue: () {},
+      onBack: () {},
     ),
-    '06_phone': () => PhoneNumberScreen(otp: services.otp, onSent: (_) {}),
+    '06_phone': () => PhoneNumberScreen(onContinue: (_) {}, onBack: () {}),
     '07_otp': () =>
         OtpScreen(otp: services.otp, phone: '059 123 4567', onVerified: () {}),
     '08_phone_success': () => PhoneSuccessScreen(onContinue: () {}),
-    '09_pin': () => PinScreen(session: session, onContinue: () {}),
+    '09_pin': () =>
+        PinScreen(session: session, onContinue: () {}, onBack: () {}),
     '10_location': () => LocationPermissionScreen(
       service: services.location,
       onContinue: (_) {},
+      onBack: () {},
     ),
-    '11_citizen': () => RoleSelectionScreen(onContinue: (_) {}),
+    '11_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
     '12_volunteer': () => RoleSelectionScreen(
       initialRole: UsageRole.volunteer,
       onContinue: (_) {},
+      onBack: () {},
     ),
     '13_warning': () => VolunteerWarningScreen(
       service: services.volunteer,

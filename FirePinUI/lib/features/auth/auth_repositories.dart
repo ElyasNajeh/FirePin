@@ -68,6 +68,7 @@ abstract interface class AuthRepository {
   });
   Future<UserAccount> restoreUser(String userId, String refreshToken);
   Future<UserLoginResult> registerUser(OnboardingSession session);
+  Future<bool> verifyUserPin({required String userId, required String pin});
   Future<void> logoutUser(String refreshToken);
 }
 
@@ -191,6 +192,19 @@ class DemoAuthRepository implements AuthRepository {
         refreshToken: 'demo-refresh-${account.id}',
       ),
     );
+  }
+
+  @override
+  Future<bool> verifyUserPin({
+    required String userId,
+    required String pin,
+  }) async {
+    if (!isValidLoginPin(pin)) return false;
+    final account = _accounts.values
+        .where((item) => item.id == userId)
+        .firstOrNull;
+    return account != null &&
+        _pins[account.nationalId] == normalizeDigits(pin).trim();
   }
 
   UserAccount _resolve(UserAccount account) => account.copyWith(

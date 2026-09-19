@@ -85,10 +85,11 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.capture => IdentityCaptureScreen(
       services: widget.services,
+      onBack: _back,
       onVerified: (image, identity) {
         _session.identityImage = image;
         _session.identity = identity;
-        _go(OnboardingStep.identitySuccess, replace: true);
+        _go(OnboardingStep.identitySuccess);
       },
     ),
     OnboardingStep.identitySuccess => IdentitySuccessScreen(
@@ -97,13 +98,14 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     OnboardingStep.review => IdentityReviewScreen(
       identity: _session.identity!,
       image: _session.identityImage!,
+      onBack: _back,
       onContinue: () => _go(OnboardingStep.phone),
     ),
     OnboardingStep.phone => PhoneNumberScreen(
-      otp: widget.services.otp,
-      onSent: (phone) {
+      onBack: _back,
+      onContinue: (phone) {
         _session.phone = phone;
-        _go(OnboardingStep.otp);
+        _go(OnboardingStep.pin);
       },
     ),
     OnboardingStep.otp => OtpScreen(
@@ -116,10 +118,12 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.pin => PinScreen(
       session: _session,
-      onContinue: () => _go(OnboardingStep.location, replace: true),
+      onBack: _back,
+      onContinue: () => _go(OnboardingStep.location),
     ),
     OnboardingStep.location => LocationPermissionScreen(
       service: widget.services.location,
+      onBack: _back,
       onContinue: (fix) {
         _session.location = fix;
         _go(OnboardingStep.role);
@@ -127,6 +131,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.role => RoleSelectionScreen(
       initialRole: _session.role,
+      onBack: _back,
       onContinue: (role) {
         _session.role = role;
         switch (_session.destination) {

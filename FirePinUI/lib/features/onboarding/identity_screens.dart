@@ -14,9 +14,11 @@ class IdentityCaptureScreen extends StatefulWidget {
     super.key,
     required this.services,
     required this.onVerified,
+    this.onBack,
   });
   final AppServices services;
   final void Function(Uint8List image, IdentityData identity) onVerified;
+  final VoidCallback? onBack;
   @override
   State<IdentityCaptureScreen> createState() => _IdentityCaptureScreenState();
 }
@@ -87,6 +89,8 @@ class _IdentityCaptureScreenState extends State<IdentityCaptureScreen>
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: OnboardingPage(
+      onBack: widget.onBack,
+      backEnabled: !_busy,
       children: [
         const SizedBox(height: 32),
         Text('صوّر بطاقة الهوية', style: AppType.title),
@@ -448,12 +452,15 @@ class IdentityReviewScreen extends StatelessWidget {
     required this.identity,
     required this.image,
     required this.onContinue,
+    this.onBack,
   });
   final IdentityData identity;
   final Uint8List image;
   final VoidCallback onContinue;
+  final VoidCallback? onBack;
   @override
   Widget build(BuildContext context) => OnboardingPage(
+    onBack: onBack,
     children: [
       const SizedBox(height: 32),
       const PageTitle('تم استخراج بيانات الهوية بنجاح', size: 24),

@@ -80,11 +80,28 @@ class FakeReports implements FireReportService {
   }
 }
 
+class TrackingOtpService implements OtpService {
+  int sends = 0;
+  int verifications = 0;
+
+  @override
+  Future<void> send(String phone) async {
+    sends++;
+  }
+
+  @override
+  Future<bool> verify(String phone, String code) async {
+    verifications++;
+    return true;
+  }
+}
+
 AppServices fakeServices({
   FakePermissions? permissions,
   FakeLocation? location,
   FakeCamera? camera,
   FakeReports? reports,
+  OtpService? otp,
   SessionRepository? sessions,
 }) => AppServices(
   permissions: permissions ?? FakePermissions(),
@@ -95,5 +112,5 @@ AppServices fakeServices({
   identity: const MockIdentityVerificationService(
     delay: Duration(milliseconds: 1500),
   ),
-  otp: MockOtpService(delay: Duration.zero),
+  otp: otp ?? MockOtpService(delay: Duration.zero),
 );
