@@ -5,8 +5,15 @@ import '../../theme/app_theme.dart';
 
 /// Figma 5:8.
 class WelcomeScreen extends StatelessWidget {
-  const WelcomeScreen({super.key, required this.onStart});
+  const WelcomeScreen({
+    super.key,
+    required this.onStart,
+    this.onLogin,
+    this.onMunicipalityLogin,
+  });
   final VoidCallback onStart;
+  final VoidCallback? onLogin;
+  final VoidCallback? onMunicipalityLogin;
   @override
   Widget build(BuildContext context) => OnboardingPage(
     children: [
@@ -64,7 +71,7 @@ class WelcomeScreen extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 40),
-      AppButton('ابدأ التحقق', onPressed: onStart),
+      AppButton('إنشاء حساب جديد', onPressed: onStart),
       const SizedBox(height: 10),
       Wrap(
         alignment: WrapAlignment.center,
@@ -72,8 +79,9 @@ class WelcomeScreen extends StatelessWidget {
         children: [
           Text('لدي حساب بالفعل —', style: AppType.muted),
           TextButton(
-            onPressed: () =>
-                showFeedback(context, 'تسجيل الدخول سيتوفر قريبًا.'),
+            onPressed:
+                onLogin ??
+                () => showFeedback(context, 'تسجيل الدخول سيتوفر قريبًا.'),
             child: Text(
               'تسجيل الدخول',
               style: AppType.text(
@@ -88,12 +96,13 @@ class WelcomeScreen extends StatelessWidget {
       ),
       const SizedBox(height: 10),
       AppButton(
-        'تسجيل الدخول بحساب البلدية',
+        'دخول الجهة المسؤولة',
         secondary: true,
         minHeight: 44,
         fontSize: 15,
-        onPressed: () =>
-            showFeedback(context, 'تسجيل الدخول بحساب البلدية سيتوفر قريبًا.'),
+        onPressed:
+            onMunicipalityLogin ??
+            () => showFeedback(context, 'دخول الجهة المسؤولة سيتوفر قريبًا.'),
       ),
     ],
   );

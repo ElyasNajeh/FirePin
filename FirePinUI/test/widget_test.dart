@@ -34,7 +34,8 @@ void mobileSize(WidgetTester tester, {Size size = const Size(390, 844)}) {
 }
 
 Future<void> toRoleSelection(WidgetTester tester) async {
-  await tapLabel(tester, 'ابدأ التحقق');
+  await tester.pump();
+  await tapLabel(tester, 'إنشاء حساب جديد');
   await tapLabel(tester, 'السماح باستخدام الكاميرا');
   await tester.pump(const Duration(milliseconds: 100));
   await tapLabel(tester, 'التقاط الصورة');
@@ -72,32 +73,27 @@ void main() {
       ..addFont(rootBundle.load('assets/fonts/Cairo.ttf'));
     await loader.load();
   });
-  testWidgets(
-    'Arabic welcome uses RTL and keeps logins as local placeholders',
-    (tester) async {
-      mobileSize(tester);
-      await tester.pumpWidget(FirePinApp(services: fakeServices()));
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(
-        Directionality.of(tester.element(find.byType(WelcomeScreen))),
-        TextDirection.rtl,
-      );
-      expect(
-        Localizations.localeOf(
-          tester.element(find.byType(WelcomeScreen)),
-        ).languageCode,
-        'ar',
-      );
-      expect(find.text('إنشاء حساب موثّق'), findsOneWidget);
-      await tapLabel(tester, 'تسجيل الدخول بحساب البلدية');
-      expect(find.byType(WelcomeScreen), findsOneWidget);
-      expect(
-        find.text('تسجيل الدخول بحساب البلدية سيتوفر قريبًا.'),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('Arabic welcome uses RTL and opens municipality login', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    await tester.pumpWidget(FirePinApp(services: fakeServices()));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(
+      Directionality.of(tester.element(find.byType(WelcomeScreen))),
+      TextDirection.rtl,
+    );
+    expect(
+      Localizations.localeOf(
+        tester.element(find.byType(WelcomeScreen)),
+      ).languageCode,
+      'ar',
+    );
+    expect(find.text('إنشاء حساب موثّق'), findsOneWidget);
+    await tapLabel(tester, 'دخول الجهة المسؤولة');
+    expect(find.byType(WelcomeScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('camera denial stays put and permanent denial opens settings', (
     tester,
@@ -107,7 +103,8 @@ void main() {
     await tester.pumpWidget(
       FirePinApp(services: fakeServices(permissions: permissions)),
     );
-    await tapLabel(tester, 'ابدأ التحقق');
+    await tester.pump();
+    await tapLabel(tester, 'إنشاء حساب جديد');
     await tapLabel(tester, 'السماح باستخدام الكاميرا');
     expect(find.byType(CameraPermissionScreen), findsOneWidget);
     expect(find.byType(IdentityCaptureScreen), findsNothing);
@@ -169,7 +166,7 @@ void main() {
   );
 
   testWidgets(
-    'volunteer can return to selection and pending cannot reach Home',
+    'volunteer can return to selection and pending retains citizen access',
     (tester) async {
       mobileSize(tester);
       await tester.pumpWidget(FirePinApp(services: fakeServices()));
@@ -183,12 +180,9 @@ void main() {
       await tapLabel(tester, 'تأكيد وإرسال طلب التطوع');
       await tester.pump(const Duration(milliseconds: 700));
       await tester.pump(const Duration(milliseconds: 350));
-      expect(find.byType(VolunteerPendingScreen), findsOneWidget);
-      expect(find.byType(HomeScreen), findsNothing);
-      await tester.binding.handlePopRoute();
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(find.byType(VolunteerPendingScreen), findsOneWidget);
-      expect(find.byType(HomeScreen), findsNothing);
+      expect(find.byType(HomeScreen), findsOneWidget);
+      await tapLabel(tester, 'الحساب');
+      expect(find.textContaining('طلب تطوع قيد المراجعة'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -243,7 +237,8 @@ void main() {
     tester.platformDispatcher.textScaleFactorTestValue = 1.5;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     await tester.pumpWidget(FirePinApp(services: fakeServices()));
-    await tapLabel(tester, 'ابدأ التحقق');
+    await tester.pump();
+    await tapLabel(tester, 'إنشاء حساب جديد');
     expect(find.byType(CameraPermissionScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

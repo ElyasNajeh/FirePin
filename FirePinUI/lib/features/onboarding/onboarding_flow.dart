@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import '../../app/app_services.dart';
+import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
+import '../auth/login_screens.dart';
 import '../home/home_screen.dart';
 import '../incidents/incident_controller.dart';
+import '../municipality/municipality_repository.dart';
 import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
@@ -13,6 +16,8 @@ import 'role_screens.dart';
 
 enum OnboardingStep {
   welcome,
+  userLogin,
+  municipalityLogin,
   cameraPermission,
   capture,
   identitySuccess,
@@ -61,6 +66,17 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   Widget _screen(OnboardingStep step) => switch (step) {
     OnboardingStep.welcome => WelcomeScreen(
       onStart: () => _go(OnboardingStep.cameraPermission),
+      onLogin: () => _go(OnboardingStep.userLogin),
+      onMunicipalityLogin: () => _go(OnboardingStep.municipalityLogin),
+    ),
+    OnboardingStep.userLogin => UserLoginScreen(
+      auth: widget.services.authController,
+      onBack: _back,
+      onCreateAccount: () => _go(OnboardingStep.cameraPermission),
+    ),
+    OnboardingStep.municipalityLogin => MunicipalityLoginScreen(
+      auth: widget.services.authController,
+      onBack: _back,
     ),
     OnboardingStep.cameraPermission => CameraPermissionScreen(
       permissions: widget.services.permissions,
@@ -115,7 +131,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
         _session.role = role;
         switch (_session.destination) {
           case AccountDestination.home:
-            _go(OnboardingStep.home, clear: true);
+            _completeRegistration();
           case AccountDestination.volunteerWarning:
             _go(OnboardingStep.volunteerWarning);
           case AccountDestination.pendingApproval:
@@ -131,9 +147,24 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
         switch (_session.destination) {
           case AccountDestination.home:
-            _go(OnboardingStep.home, clear: true);
+            _completeRegistration();
           case AccountDestination.pendingApproval:
-            _go(OnboardingStep.pending, clear: true);
+            final identity = _session.identity;
+            if (identity != null) {
+              widget.services.operations.submitApplication(
+                VolunteerApplicationRecord(
+                  id: 'local-application-${identity.identityNumber}',
+                  userId: 'local-${identity.identityNumber}',
+                  fullName: identity.fullName,
+                  nationalId: identity.identityNumber,
+                  phone: _session.phone,
+                  birthDate: identity.birthDate,
+                  requestedAt: DateTime.now(),
+                  status: ApplicationStatus.pending,
+                ),
+              );
+            }
+            _completeRegistration();
           case AccountDestination.volunteerWarning:
             _go(OnboardingStep.volunteerWarning);
         }
@@ -160,6 +191,17 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       },
     ),
   };
+
+  Future<void> _completeRegistration() async {
+    try {
+      await widget.services.authController.completeRegistration(_session);
+    } on Object {
+      if (mounted) {
+        showFeedback(context, 'تعذّر حفظ الجلسة. حاول مجددًا.');
+      }
+    }
+  }
+
   @override
   void dispose() {
     _incidents.dispose();

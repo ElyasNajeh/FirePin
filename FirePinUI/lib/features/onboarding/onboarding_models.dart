@@ -4,7 +4,7 @@ enum UsageRole { citizen, volunteer }
 
 enum AccountDestination { home, volunteerWarning, pendingApproval }
 
-enum ApplicationStatus { none, pending, approved }
+enum ApplicationStatus { none, pending, approved, rejected }
 
 class IdentityData {
   const IdentityData({
@@ -70,6 +70,7 @@ class OnboardingSession {
   ApplicationStatus applicationStatus = ApplicationStatus.none;
   String? _pin;
   bool get hasPin => _pin != null;
+  String? get pinForRegistration => _pin;
 
   bool savePin(String pin, String confirmation) {
     if (confirmPin(pin, confirmation) != PinConfirmation.confirmed) {
@@ -80,16 +81,16 @@ class OnboardingSession {
   }
 
   AccountDestination get destination {
-    if (applicationStatus == ApplicationStatus.pending) {
-      return AccountDestination.pendingApproval;
-    }
-
     if (role == UsageRole.citizen) {
       return AccountDestination.home;
     }
 
     if (applicationStatus == ApplicationStatus.approved) {
       return AccountDestination.home;
+    }
+
+    if (applicationStatus == ApplicationStatus.pending) {
+      return AccountDestination.pendingApproval;
     }
 
     return AccountDestination.volunteerWarning;

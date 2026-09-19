@@ -5,6 +5,7 @@ import 'package:firepin_ui/core/services/camera_service.dart';
 import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
+import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:flutter/material.dart';
 
 final testPhoto = base64Decode(
@@ -84,11 +85,13 @@ AppServices fakeServices({
   FakeLocation? location,
   FakeCamera? camera,
   FakeReports? reports,
+  SessionRepository? sessions,
 }) => AppServices(
   permissions: permissions ?? FakePermissions(),
   location: location ?? FakeLocation(),
   camera: () => camera ?? FakeCamera(),
   reports: reports ?? FakeReports(),
+  sessions: sessions ?? MemorySessionRepository(),
   identity: const MockIdentityVerificationService(
     delay: Duration(milliseconds: 1500),
   ),

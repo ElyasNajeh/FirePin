@@ -26,6 +26,8 @@ class FireIncident {
     required this.reporterPhone,
     required this.photo,
     required this.events,
+    this.reporterName,
+    this.reporterNationalId,
     this.responderPhone,
     this.nearbyCitizenAcknowledged = false,
     this.volunteerDeclined = false,
@@ -36,6 +38,8 @@ class FireIncident {
   final DateTime reportedAt;
   final LocationFix fireLocation;
   final String reporterPhone;
+  final String? reporterName;
+  final String? reporterNationalId;
   final Uint8List? photo;
   final List<IncidentEvent> events;
   String? responderPhone;
@@ -61,6 +65,8 @@ class IncidentController extends ChangeNotifier {
   void report({
     required LocationFix location,
     required String reporterPhone,
+    String? reporterName,
+    String? reporterNationalId,
     Uint8List? photo,
   }) {
     final now = DateTime.now();
@@ -70,6 +76,8 @@ class IncidentController extends ChangeNotifier {
       reportedAt: now,
       fireLocation: location,
       reporterPhone: reporterPhone,
+      reporterName: reporterName,
+      reporterNationalId: reporterNationalId,
       photo: photo,
       events: [IncidentEvent(stage: IncidentStage.reported, at: now)],
     );

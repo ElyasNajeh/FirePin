@@ -18,12 +18,14 @@ class HomeScreen extends StatefulWidget {
     required this.onReport,
     this.session,
     this.incidentController,
+    this.onLogout,
   });
 
   final bool hasLocation;
   final VoidCallback onReport;
   final OnboardingSession? session;
   final IncidentController? incidentController;
+  final Future<void> Function()? onLogout;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -49,7 +51,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool get _isApprovedVolunteer =>
       _session.role == UsageRole.volunteer &&
-      _session.applicationStatus != ApplicationStatus.pending;
+      (_session.applicationStatus == ApplicationStatus.approved ||
+          _session.applicationStatus == ApplicationStatus.none);
 
   @override
   void dispose() {
@@ -84,10 +87,12 @@ class _HomeScreenState extends State<HomeScreen> {
             incidentController: _incidents,
             onChangePin: () =>
                 showFeedback(context, 'تغيير رمز الدخول سيتوفر مع ربط الحساب.'),
-            onLogout: () => showFeedback(
-              context,
-              'تسجيل الخروج غير مفعّل في جلسة العرض المحلية.',
-            ),
+            onLogout: widget.onLogout == null
+                ? () => showFeedback(
+                    context,
+                    'تسجيل الخروج غير مفعّل في جلسة العرض المحلية.',
+                  )
+                : () => widget.onLogout!(),
           ),
         },
       ),

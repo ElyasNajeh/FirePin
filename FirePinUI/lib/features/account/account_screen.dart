@@ -24,7 +24,8 @@ class AccountScreen extends StatelessWidget {
     final identity = session.identity;
     final approvedVolunteer =
         session.role == UsageRole.volunteer &&
-        session.applicationStatus != ApplicationStatus.pending;
+        session.applicationStatus != ApplicationStatus.pending &&
+        session.applicationStatus != ApplicationStatus.rejected;
     final name = identity?.fullName ?? 'رمزي أبو فلاح';
     final initial = name.trim().isEmpty ? 'ر' : name.trim().characters.first;
     return Column(
@@ -82,6 +83,8 @@ class AccountScreen extends StatelessWidget {
                           ? 'متطوع معتمد'
                           : session.applicationStatus == ApplicationStatus.pending
                           ? 'طلب تطوع قيد المراجعة'
+                          : session.applicationStatus == ApplicationStatus.rejected
+                          ? 'طلب التطوع مرفوض'
                           : 'مواطن'}',
                       style: AppType.caption,
                     ),
