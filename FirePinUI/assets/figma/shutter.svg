@@ -1,0 +1,19 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="92" height="92" viewBox="0 0 92 92" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="&#216;&#167;&#217;&#132;&#216;&#170;&#217;&#130;&#216;&#167;&#216;&#183; &#216;&#181;&#217;&#136;&#216;&#177;&#216;&#169; &#194;&#183; Camera shutter">
+<circle id="Shutter outer ring" cx="46" cy="46" r="40" stroke="white" stroke-width="4"/>
+<g id="Shutter button" filter="url(#filter0_d_0_4)">
+<circle cx="46" cy="46" r="31" fill="white"/>
+</g>
+</g>
+<defs>
+<filter id="filter0_d_0_4" x="10" y="12" width="72" height="72" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+<feOffset dy="2"/>
+<feGaussianBlur stdDeviation="2.5"/>
+<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.19 0"/>
+<feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_0_4"/>
+<feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_0_4" result="shape"/>
+</filter>
+</defs>
+</svg>
