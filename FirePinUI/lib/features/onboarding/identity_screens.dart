@@ -45,7 +45,9 @@ class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
       _error = null;
     });
     try {
-      final image = await _camera.currentState?.capture();
+      final image = await _camera.currentState?.capture(
+        focusPoint: captureRegion?.normalizedGuideCenter,
+      );
       if (image == null) {
         throw const IdentityScanFailure(
           'تعذّر التقاط الصورة. ثبّت الهاتف وأعد المحاولة.',
@@ -138,7 +140,7 @@ class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
               ),
               const Spacer(),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: AspectRatio(
                   aspectRatio: 1.58,
                   child: KeyedSubtree(

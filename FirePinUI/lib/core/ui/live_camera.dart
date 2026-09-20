@@ -96,7 +96,7 @@ class LiveCameraState extends State<LiveCamera> with WidgetsBindingObserver {
     });
   }
 
-  Future<Uint8List?> capture() async {
+  Future<Uint8List?> capture({Offset? focusPoint}) async {
     if (!_ready || _takingPicture || _source == null) return null;
     _takingPicture = true;
     final result = Completer<Uint8List?>();
@@ -105,7 +105,7 @@ class LiveCameraState extends State<LiveCamera> with WidgetsBindingObserver {
         if (!mounted || !_foreground || _source == null) {
           result.complete(null);
         } else {
-          result.complete(await _source!.capture());
+          result.complete(await _source!.capture(focusPoint: focusPoint));
         }
       } catch (_) {
         if (mounted) _update(ready: false, error: true);

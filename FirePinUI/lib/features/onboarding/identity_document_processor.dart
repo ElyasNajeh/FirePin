@@ -230,8 +230,10 @@ class TesseractIdentityDocumentProcessor implements IdentityDocumentProcessor {
     }
     _identityOcrLog(
       'preprocess',
-      'status=ready dimensions=${processed.width}x${processed.height} '
-          'bytes=${processed.bytes.length} cropped=${processed.wasCropped}',
+      'status=ready source=${processed.sourceWidth}x${processed.sourceHeight} '
+          'crop=${processed.cropWidth}x${processed.cropHeight} '
+          'output=${processed.width}x${processed.height} '
+          'cropped=${processed.wasCropped}',
     );
 
     late final String tessdataPath;
@@ -351,27 +353,54 @@ class TesseractIdentityDocumentProcessor implements IdentityDocumentProcessor {
         return fullCard;
       }
 
-      final regions = await IdentityCardRegions.extract(processed.bytes);
-      final idText = await recognizeRegion(
-        regions.nationalId,
-        'eng',
-        IdentityOcrMode.nationalId,
+      final regions = await IdentityCardRegions.extract(
+        processed.enhancedBytes,
+        nationalId: fullCard.identityNumber.isEmpty,
+        arabicNames: fullCard.fullName.isEmpty,
+        birthDate: fullCard.birthDate.isEmpty,
       );
-      final nameText = await recognizeRegion(
-        regions.arabicNames,
-        'ara',
-        IdentityOcrMode.arabicNames,
-      );
-      final dateText = await recognizeRegion(
-        regions.birthDate,
-        'eng',
-        IdentityOcrMode.birthDate,
-      );
-      final identity = IdentityTextParser.parse(
-        text,
-        nationalIdText: idText,
-        nameText: nameText,
-        birthDateText: dateText,
+      var identityNumber = fullCard.identityNumber;
+      var fullName = fullCard.fullName;
+      var birthDate = fullCard.birthDate;
+
+      // A structurally valid full-card field is authoritative. Targeted OCR
+      // only recovers missing/ambiguous fields, so a weaker conflicting pass
+      // can never overwrite an already-good value.
+      if (identityNumber.isEmpty) {
+        final idText = await recognizeRegion(
+          regions.nationalId!,
+          'eng',
+          IdentityOcrMode.nationalId,
+        );
+        identityNumber = IdentityTextParser.parse(
+          '',
+          nationalIdText: idText,
+        ).identityNumber;
+      }
+      if (fullName.isEmpty) {
+        final nameText = await recognizeRegion(
+          regions.arabicNames!,
+          'ara',
+          IdentityOcrMode.arabicNames,
+        );
+        fullName = IdentityTextParser.parse('', nameText: nameText).fullName;
+      }
+      if (birthDate.isEmpty) {
+        final dateText = await recognizeRegion(
+          regions.birthDate!,
+          'eng',
+          IdentityOcrMode.birthDate,
+        );
+        birthDate = IdentityTextParser.parse(
+          '',
+          birthDateText: dateText,
+        ).birthDate;
+      }
+      final identity = IdentityData(
+        fullName: fullName,
+        identityNumber: identityNumber,
+        birthDate: birthDate,
+        address: '',
       );
       logParse(identity, 'regions');
       return identity;

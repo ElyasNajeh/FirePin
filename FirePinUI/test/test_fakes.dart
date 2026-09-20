@@ -236,6 +236,7 @@ class FakeLocation implements LocationService {
 class FakeCamera implements CameraSource {
   bool opened = false;
   int captures = 0;
+  Offset? lastFocusPoint;
   @override
   Future<void> initialize() async {
     opened = true;
@@ -244,8 +245,9 @@ class FakeCamera implements CameraSource {
   @override
   Widget buildPreview() => const ColoredBox(color: Color(0xFF173431));
   @override
-  Future<Uint8List> capture() async {
+  Future<Uint8List> capture({Offset? focusPoint}) async {
     captures++;
+    lastFocusPoint = focusPoint;
     return testPhoto;
   }
 

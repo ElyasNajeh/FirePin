@@ -17,6 +17,11 @@ class IdentityCaptureRegion {
 
   final Size previewSize;
   final Rect guideRect;
+
+  Offset get normalizedGuideCenter => Offset(
+    (guideRect.center.dx / previewSize.width).clamp(0.0, 1.0),
+    (guideRect.center.dy / previewSize.height).clamp(0.0, 1.0),
+  );
 }
 
 class IdentityPixelCrop {
@@ -43,6 +48,7 @@ class IdentityCropGeometry {
     required Size imageSize,
     required Size previewSize,
     required Rect guideRect,
+    double paddingFraction = 0.045,
   }) {
     if (!_validSize(imageSize) || !_validSize(previewSize)) {
       throw const FormatException('Invalid image or preview size');
@@ -63,19 +69,18 @@ class IdentityCropGeometry {
     final offsetX = (previewSize.width - displayedWidth) / 2;
     final offsetY = (previewSize.height - displayedHeight) / 2;
 
-    final left = ((visibleGuide.left - offsetX) / scale).clamp(
-      0.0,
-      imageSize.width,
-    );
-    final top = ((visibleGuide.top - offsetY) / scale).clamp(
-      0.0,
-      imageSize.height,
-    );
-    final right = ((visibleGuide.right - offsetX) / scale).clamp(
-      0.0,
-      imageSize.width,
-    );
-    final bottom = ((visibleGuide.bottom - offsetY) / scale).clamp(
+    final mappedLeft = (visibleGuide.left - offsetX) / scale;
+    final mappedTop = (visibleGuide.top - offsetY) / scale;
+    final mappedRight = (visibleGuide.right - offsetX) / scale;
+    final mappedBottom = (visibleGuide.bottom - offsetY) / scale;
+    final horizontalPadding =
+        (mappedRight - mappedLeft) * paddingFraction.clamp(0.0, 0.15);
+    final verticalPadding =
+        (mappedBottom - mappedTop) * paddingFraction.clamp(0.0, 0.15);
+    final left = (mappedLeft - horizontalPadding).clamp(0.0, imageSize.width);
+    final top = (mappedTop - verticalPadding).clamp(0.0, imageSize.height);
+    final right = (mappedRight + horizontalPadding).clamp(0.0, imageSize.width);
+    final bottom = (mappedBottom + verticalPadding).clamp(
       0.0,
       imageSize.height,
     );
@@ -102,27 +107,37 @@ class IdentityCropGeometry {
 class ProcessedIdentityImage {
   const ProcessedIdentityImage({
     required this.bytes,
+    required this.enhancedBytes,
     required this.width,
     required this.height,
+    required this.sourceWidth,
+    required this.sourceHeight,
+    required this.cropWidth,
+    required this.cropHeight,
     required this.wasCropped,
   });
 
   final Uint8List bytes;
+  final Uint8List enhancedBytes;
   final int width;
   final int height;
+  final int sourceWidth;
+  final int sourceHeight;
+  final int cropWidth;
+  final int cropHeight;
   final bool wasCropped;
 }
 
 class IdentityCardRegionImages {
   const IdentityCardRegionImages({
-    required this.nationalId,
-    required this.arabicNames,
-    required this.birthDate,
+    this.nationalId,
+    this.arabicNames,
+    this.birthDate,
   });
 
-  final Uint8List nationalId;
-  final Uint8List arabicNames;
-  final Uint8List birthDate;
+  final Uint8List? nationalId;
+  final Uint8List? arabicNames;
+  final Uint8List? birthDate;
 }
 
 /// Padded fractions of the already cropped card. These areas include the
@@ -130,38 +145,47 @@ class IdentityCardRegionImages {
 class IdentityCardRegions {
   const IdentityCardRegions._();
 
-  static Future<IdentityCardRegionImages> extract(Uint8List cardBytes) =>
-      Isolate.run(() {
-        final card = image.decodeImage(cardBytes);
-        if (card == null) {
-          throw const IdentityImageProcessingException('region decode failed');
-        }
-        Uint8List crop(double left, double top, double right, double bottom) {
-          final x = (left * card.width).floor();
-          final y = (top * card.height).floor();
-          var piece = image.copyCrop(
-            card,
-            x: x,
-            y: y,
-            width: (right * card.width).ceil() - x,
-            height: (bottom * card.height).ceil() - y,
-          );
-          if (piece.width < 1400) {
-            piece = image.copyResize(
-              piece,
-              width: 1400,
-              interpolation: image.Interpolation.cubic,
-            );
-          }
-          return Uint8List.fromList(image.encodeJpg(piece, quality: 94));
-        }
-
-        return IdentityCardRegionImages(
-          nationalId: crop(.34, .24, .95, .36),
-          arabicNames: crop(.67, .35, .97, .67),
-          birthDate: crop(.58, .63, .97, .73),
+  static Future<IdentityCardRegionImages> extract(
+    Uint8List cardBytes, {
+    required bool nationalId,
+    required bool arabicNames,
+    required bool birthDate,
+  }) => Isolate.run(() {
+    final card = image.decodeImage(cardBytes);
+    if (card == null) {
+      throw const IdentityImageProcessingException('region decode failed');
+    }
+    Uint8List crop(double left, double top, double right, double bottom) {
+      final x = (left * card.width).floor();
+      final y = (top * card.height).floor();
+      var piece = image.copyCrop(
+        card,
+        x: x,
+        y: y,
+        width: (right * card.width).ceil() - x,
+        height: (bottom * card.height).ceil() - y,
+      );
+      if (piece.width < 1400) {
+        piece = image.copyResize(
+          piece,
+          width: 1400,
+          interpolation: image.Interpolation.cubic,
         );
-      });
+      }
+      image.convolution(
+        piece,
+        filter: const [0, -1, 0, -1, 5, -1, 0, -1, 0],
+        amount: 0.28,
+      );
+      return Uint8List.fromList(image.encodeJpg(piece, quality: 94));
+    }
+
+    return IdentityCardRegionImages(
+      nationalId: nationalId ? crop(.24, .17, .98, .41) : null,
+      arabicNames: arabicNames ? crop(.40, .27, .99, .73) : null,
+      birthDate: birthDate ? crop(.40, .57, .99, .81) : null,
+    );
+  });
 }
 
 class IdentityImageProcessingException implements Exception {
@@ -208,6 +232,8 @@ class ConservativeIdentityImagePreprocessor
     // Camera JPEGs commonly store rotation in EXIF. Baking it makes native
     // Tesseract see exactly the same upright image the user saw in preview.
     var prepared = image.bakeOrientation(decoded);
+    final sourceWidth = prepared.width;
+    final sourceHeight = prepared.height;
     var wasCropped = false;
     if (request.hasRegion) {
       final crop = IdentityCropGeometry.fromCoverPreview(
@@ -229,6 +255,9 @@ class ConservativeIdentityImagePreprocessor
       );
       wasCropped = true;
     }
+
+    final cropWidth = prepared.width;
+    final cropHeight = prepared.height;
 
     final minimumWidth = wasCropped
         ? _minimumCroppedWidth
@@ -258,15 +287,27 @@ class ConservativeIdentityImagePreprocessor
       );
     }
 
-    // Tesseract performs its own binarization. A mild grayscale/contrast pass
-    // reduces color noise without hard-thresholding faint Arabic glyphs.
-    image.grayscale(prepared);
-    image.contrast(prepared, contrast: 108);
-    final encoded = image.encodeJpg(prepared, quality: 92);
+    // Tesseract performs its own binarization. Keep a mild grayscale/contrast
+    // full-card image, plus one stronger-contrast variant for targeted
+    // recovery. Requested targeted crops are sharpened after cropping, which
+    // avoids filtering millions of unused pixels. Neither path applies a
+    // destructive hard threshold to Arabic glyphs.
+    final conservative = image.Image.from(prepared);
+    image.grayscale(conservative);
+    image.contrast(conservative, contrast: 108);
+    final enhanced = image.Image.from(conservative);
+    image.contrast(enhanced, contrast: 114);
+    final encoded = image.encodeJpg(conservative, quality: 94);
+    final enhancedEncoded = image.encodeJpg(enhanced, quality: 94);
     return ProcessedIdentityImage(
       bytes: encoded,
-      width: prepared.width,
-      height: prepared.height,
+      enhancedBytes: enhancedEncoded,
+      width: conservative.width,
+      height: conservative.height,
+      sourceWidth: sourceWidth,
+      sourceHeight: sourceHeight,
+      cropWidth: cropWidth,
+      cropHeight: cropHeight,
       wasCropped: wasCropped,
     );
   }

@@ -1,8 +1,10 @@
 import 'package:crypto/crypto.dart';
+import 'package:firepin_ui/core/services/camera_service.dart';
 import 'package:firepin_ui/features/onboarding/identity_document_processor.dart';
 import 'package:firepin_ui/features/onboarding/identity_image_processor.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,6 +19,9 @@ void _mobileSize(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
+Uint8List _ocrPhoto() =>
+    Uint8List.fromList(image.encodeJpg(image.Image(width: 1000, height: 650)));
+
 class _PreparedImagePreprocessor implements IdentityImagePreprocessor {
   const _PreparedImagePreprocessor();
 
@@ -26,8 +31,13 @@ class _PreparedImagePreprocessor implements IdentityImagePreprocessor {
     IdentityCaptureRegion? region,
   }) async => ProcessedIdentityImage(
     bytes: bytes,
+    enhancedBytes: bytes,
     width: 1200,
     height: 760,
+    sourceWidth: 1200,
+    sourceHeight: 760,
+    cropWidth: 1200,
+    cropHeight: 760,
     wasCropped: region != null,
   );
 }
@@ -53,10 +63,15 @@ class _FailingOcrEngine implements IdentityOcrEngine {
 }
 
 class _ScriptedOcrEngine implements IdentityOcrEngine {
-  const _ScriptedOcrEngine(this.responses, {this.failingMode});
+  const _ScriptedOcrEngine(
+    this.responses, {
+    this.failingMode,
+    this.onRecognize,
+  });
 
   final Map<IdentityOcrMode, String> responses;
   final IdentityOcrMode? failingMode;
+  final ValueChanged<IdentityOcrMode>? onRecognize;
 
   @override
   Future<String> recognize({
@@ -65,6 +80,7 @@ class _ScriptedOcrEngine implements IdentityOcrEngine {
     required String language,
     IdentityOcrMode mode = IdentityOcrMode.fullCard,
   }) async {
+    onRecognize?.call(mode);
     if (mode == failingMode) {
       throw PlatformException(code: 'OCR_EXECUTION_FAILED');
     }
@@ -454,6 +470,10 @@ void main() {
   });
 
   group('OCR runtime errors', () {
+    test('camera requests the highest available capture resolution', () {
+      expect(NativeCameraSource.captureResolutionPreset, ResolutionPreset.max);
+    });
+
     test('classifies tessdata, initialization, and execution failures', () {
       expect(
         TesseractIdentityDocumentProcessor.classifyOcrError(
@@ -521,6 +541,109 @@ void main() {
       expect(result.birthDate, '07 / 11 / 2000');
     });
 
+    test('complete full-card OCR skips every targeted pass', () async {
+      final calls = <IdentityOcrMode>[];
+      final processor = TesseractIdentityDocumentProcessor(
+        preprocessor: const _PreparedImagePreprocessor(),
+        ocrEngine: _ScriptedOcrEngine({
+          IdentityOcrMode.fullCard: '''
+رقم الهوية: 123456789
+الاسم الكامل: أحمد محمد سالم
+تاريخ الميلاد: 07/11/2000
+''',
+        }, onRecognize: calls.add),
+        tessdataProvider: const _ReadyTessdataProvider(),
+      );
+
+      final result = await processor.extract(_ocrPhoto());
+
+      expect(result.identityNumber, '123456789');
+      expect(calls, [IdentityOcrMode.fullCard]);
+    });
+
+    for (final scenario
+        in <
+          ({
+            String label,
+            String fullCard,
+            IdentityOcrMode targetedMode,
+            String targetedText,
+            String expectedId,
+            String expectedName,
+            String expectedBirthDate,
+          })
+        >[
+          (
+            label: 'missing ID',
+            fullCard: 'الاسم الكامل: أحمد محمد سالم\nتاريخ الميلاد: 07/11/2000',
+            targetedMode: IdentityOcrMode.nationalId,
+            targetedText: '123456789',
+            expectedId: '123456789',
+            expectedName: 'أحمد محمد سالم',
+            expectedBirthDate: '07 / 11 / 2000',
+          ),
+          (
+            label: 'missing name',
+            fullCard: 'رقم الهوية: 123456789\nتاريخ الميلاد: 07/11/2000',
+            targetedMode: IdentityOcrMode.arabicNames,
+            targetedText: 'الاسم الشخصي: أحمد\nاسم الأب: محمد\nاسم الجد: سالم',
+            expectedId: '123456789',
+            expectedName: 'أحمد محمد سالم',
+            expectedBirthDate: '07 / 11 / 2000',
+          ),
+          (
+            label: 'missing birth date',
+            fullCard: 'رقم الهوية: 123456789\nالاسم الكامل: أحمد محمد سالم',
+            targetedMode: IdentityOcrMode.birthDate,
+            targetedText: '07/11/2000',
+            expectedId: '123456789',
+            expectedName: 'أحمد محمد سالم',
+            expectedBirthDate: '07 / 11 / 2000',
+          ),
+        ]) {
+      test('${scenario.label} runs only its targeted recovery', () async {
+        final calls = <IdentityOcrMode>[];
+        final processor = TesseractIdentityDocumentProcessor(
+          preprocessor: const _PreparedImagePreprocessor(),
+          ocrEngine: _ScriptedOcrEngine({
+            IdentityOcrMode.fullCard: scenario.fullCard,
+            scenario.targetedMode: scenario.targetedText,
+          }, onRecognize: calls.add),
+          tessdataProvider: const _ReadyTessdataProvider(),
+        );
+
+        final result = await processor.extract(_ocrPhoto());
+
+        expect(calls, [IdentityOcrMode.fullCard, scenario.targetedMode]);
+        expect(result.identityNumber, scenario.expectedId);
+        expect(result.fullName, scenario.expectedName);
+        expect(result.birthDate, scenario.expectedBirthDate);
+      });
+    }
+
+    test(
+      'weaker conflicting targeted ID cannot replace valid full-card ID',
+      () async {
+        final calls = <IdentityOcrMode>[];
+        final processor = TesseractIdentityDocumentProcessor(
+          preprocessor: const _PreparedImagePreprocessor(),
+          ocrEngine: _ScriptedOcrEngine({
+            IdentityOcrMode.fullCard:
+                'رقم الهوية: 123456789\nتاريخ الميلاد: 07/11/2000',
+            IdentityOcrMode.nationalId: '987654321',
+            IdentityOcrMode.arabicNames:
+                'الاسم الشخصي: أحمد\nاسم الأب: محمد\nاسم الجد: سالم',
+          }, onRecognize: calls.add),
+          tessdataProvider: const _ReadyTessdataProvider(),
+        );
+
+        final result = await processor.extract(_ocrPhoto());
+
+        expect(result.identityNumber, '123456789');
+        expect(calls, [IdentityOcrMode.fullCard, IdentityOcrMode.arabicNames]);
+      },
+    );
+
     test('one targeted OCR execution error retains other fields', () async {
       const processor = TesseractIdentityDocumentProcessor(
         preprocessor: _PreparedImagePreprocessor(),
@@ -562,10 +685,24 @@ void main() {
         previewSize: const Size(400, 800),
         guideRect: const Rect.fromLTWH(20, 286, 360, 228),
       );
-      expect(crop.x, 240);
-      expect(crop.y, 572);
-      expect(crop.width, 720);
-      expect(crop.height, 456);
+      expect(crop.x, lessThan(240));
+      expect(crop.y, lessThan(572));
+      expect(crop.width, greaterThan(720));
+      expect(crop.height, greaterThan(456));
+      expect(crop.width / crop.height, closeTo(360 / 228, 0.02));
+    });
+
+    test('padded crop is clamped to image bounds', () {
+      final crop = IdentityCropGeometry.fromCoverPreview(
+        imageSize: const Size(1200, 1600),
+        previewSize: const Size(400, 800),
+        guideRect: const Rect.fromLTWH(0, 0, 390, 247),
+      );
+      expect(crop.x, greaterThanOrEqualTo(0));
+      expect(crop.y, greaterThanOrEqualTo(0));
+      expect(crop.x + crop.width, lessThanOrEqualTo(1200));
+      expect(crop.y + crop.height, lessThanOrEqualTo(1600));
+      expect(crop.width / crop.height, inInclusiveRange(1.45, 1.75));
     });
 
     test('rejects invalid crop geometry', () {
@@ -597,10 +734,17 @@ void main() {
       expect(result.wasCropped, isTrue);
       expect(result.width, 1280);
       expect(result.width / result.height, closeTo(720 / 456, 0.01));
+      expect(result.sourceWidth, 1200);
+      expect(result.sourceHeight, 1600);
+      expect(result.cropWidth, greaterThan(720));
+      expect(result.cropHeight, greaterThan(456));
       final decoded = image.decodeJpg(result.bytes)!;
+      final enhanced = image.decodeJpg(result.enhancedBytes)!;
       final pixel = decoded.getPixel(100, 100);
       expect((pixel.r - pixel.g).abs(), lessThanOrEqualTo(2));
       expect((pixel.g - pixel.b).abs(), lessThanOrEqualTo(2));
+      expect(enhanced.width, decoded.width);
+      expect(enhanced.height, decoded.height);
     });
 
     test('accepts and upscales a modest guide crop for OCR', () async {
@@ -676,6 +820,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(camera.captures, 1);
+    expect(camera.lastFocusPoint, isNotNull);
+    expect(camera.lastFocusPoint!.dx, closeTo(0.5, 0.02));
     expect(processor.calls, 1);
     expect(processor.receivedImage, testPhoto);
     expect(processor.receivedRegion, isNotNull);
