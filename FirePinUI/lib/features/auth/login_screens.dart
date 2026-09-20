@@ -153,10 +153,6 @@ class _UserLoginScreenState extends State<UserLoginScreen> {
                   onPressed: widget.onCreateAccount,
                   child: const Text('إنشاء حساب جديد'),
                 ),
-                const SizedBox(height: 18),
-                const _DemoHint(
-                  'للعرض: مواطن 123456789 / 1234  •  متطوع 987654321 / 4321',
-                ),
               ],
             ),
           ),
@@ -296,10 +292,6 @@ class _MunicipalityLoginScreenState extends State<MunicipalityLoginScreen> {
                   onPressed: widget.onBack,
                   child: const Text('العودة إلى دخول المستخدمين'),
                 ),
-                const SizedBox(height: 18),
-                const _DemoHint(
-                  'للعرض: municipality@firepin.ps / firepin-demo',
-                ),
               ],
             ),
           ),
@@ -348,19 +340,5 @@ class _AuthField extends StatelessWidget {
       fillColor: Colors.white,
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
     ),
-  );
-}
-
-class _DemoHint extends StatelessWidget {
-  const _DemoHint(this.text);
-  final String text;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: AppColors.primaryContainer,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Text(text, textAlign: TextAlign.center, style: AppType.caption),
   );
 }

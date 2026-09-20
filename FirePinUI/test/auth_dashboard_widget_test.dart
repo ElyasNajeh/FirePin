@@ -23,11 +23,7 @@ void main() {
     tester,
   ) async {
     final sessions = MemorySessionRepository()
-      ..value = const StoredSession(
-        principal: AuthPrincipal.user,
-        subjectId: 'user-citizen',
-        refreshToken: 'demo-refresh-user-citizen',
-      );
+      ..value = const StoredSession(principal: AuthPrincipal.user);
     await tester.pumpWidget(
       FirePinApp(services: fakeServices(sessions: sessions)),
     );
@@ -63,11 +59,7 @@ void main() {
     tester,
   ) async {
     final sessions = MemorySessionRepository()
-      ..value = const StoredSession(
-        principal: AuthPrincipal.user,
-        subjectId: 'user-citizen',
-        refreshToken: 'demo-refresh-user-citizen',
-      );
+      ..value = const StoredSession(principal: AuthPrincipal.user);
     await tester.pumpWidget(
       FirePinApp(services: fakeServices(sessions: sessions)),
     );
@@ -131,11 +123,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     final sessions = MemorySessionRepository()
-      ..value = const StoredSession(
-        principal: AuthPrincipal.municipality,
-        subjectId: 'municipality-jerusalem',
-        refreshToken: 'demo-municipality-refresh',
-      );
+      ..value = const StoredSession(principal: AuthPrincipal.municipality);
     await tester.pumpWidget(
       FirePinApp(services: fakeServices(sessions: sessions)),
     );

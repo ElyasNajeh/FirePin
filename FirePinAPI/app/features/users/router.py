@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.features.auth.service import get_current_user
 from app.features.users import service
 from app.features.users.model import User
 from app.features.users.schema import (
@@ -38,6 +39,7 @@ async def register_user(
 )
 async def get_users(
     params: Annotated[UserListParams, Query()],
+    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     return await service.get_users(db, params)
@@ -50,6 +52,7 @@ async def get_users(
 )
 async def get_user(
     user_id: Annotated[int, Path(gt=0)],
+    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     return await service.get_user(db, user_id)

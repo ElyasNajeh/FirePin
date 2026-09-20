@@ -60,33 +60,19 @@ class MunicipalityAccount {
   final bool isActive;
 }
 
-class AuthTokens {
-  const AuthTokens({required this.accessToken, required this.refreshToken});
-  final String accessToken;
-  final String refreshToken;
-}
-
 class UserLoginResult {
-  const UserLoginResult({required this.account, required this.tokens});
+  const UserLoginResult({required this.account});
   final UserAccount account;
-  final AuthTokens tokens;
 }
 
 class MunicipalityLoginResult {
-  const MunicipalityLoginResult({required this.account, required this.tokens});
+  const MunicipalityLoginResult({required this.account});
   final MunicipalityAccount account;
-  final AuthTokens tokens;
 }
 
 class StoredSession {
-  const StoredSession({
-    required this.principal,
-    required this.subjectId,
-    required this.refreshToken,
-  });
+  const StoredSession({required this.principal});
   final AuthPrincipal principal;
-  final String subjectId;
-  final String refreshToken;
 }
 
 class AuthFailure implements Exception {

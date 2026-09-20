@@ -20,7 +20,6 @@ class AuthController extends ChangeNotifier {
   AuthStatus _status = AuthStatus.restoring;
   UserAccount? _user;
   MunicipalityAccount? _municipality;
-  String? _refreshToken;
 
   AuthStatus get status => _status;
   UserAccount? get user => _user;
@@ -31,24 +30,21 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
     final stored = await _sessions.read();
     if (stored == null) {
+      await _clearPersistedAuthentication();
       _status = AuthStatus.signedOut;
       notifyListeners();
       return;
     }
     try {
-      _refreshToken = stored.refreshToken;
       if (stored.principal == AuthPrincipal.user) {
-        _user = await _users.restoreUser(stored.subjectId, stored.refreshToken);
+        _user = await _users.restoreUser();
         _status = AuthStatus.user;
       } else {
-        _municipality = await _municipalities.restore(
-          stored.subjectId,
-          stored.refreshToken,
-        );
+        _municipality = await _municipalities.restore();
         _status = AuthStatus.municipality;
       }
     } on Object {
-      await _sessions.clear();
+      await _clearPersistedAuthentication();
       _clearMemory();
       _status = AuthStatus.signedOut;
     }
@@ -56,13 +52,27 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> loginUser(String nationalId, String pin) async {
-    final result = await _users.loginUser(nationalId: nationalId, pin: pin);
-    await _setUser(result);
+    await _prepareForLogin();
+    try {
+      final result = await _users.loginUser(nationalId: nationalId, pin: pin);
+      await _setUser(result);
+    } on Object {
+      _status = AuthStatus.signedOut;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> completeRegistration(OnboardingSession session) async {
-    final result = await _users.registerUser(session);
-    await _setUser(result);
+    await _prepareForLogin();
+    try {
+      final result = await _users.registerUser(session);
+      await _setUser(result);
+    } on Object {
+      _status = AuthStatus.signedOut;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<bool> verifyCurrentUserPin(String pin) async {
@@ -76,58 +86,65 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> loginMunicipality(String email, String password) async {
-    final result = await _municipalities.login(
-      email: email,
-      password: password,
-    );
-    _clearMemory();
-    _municipality = result.account;
-    _refreshToken = result.tokens.refreshToken;
-    await _sessions.save(
-      StoredSession(
-        principal: AuthPrincipal.municipality,
-        subjectId: result.account.id,
-        refreshToken: result.tokens.refreshToken,
-      ),
-    );
-    _status = AuthStatus.municipality;
-    notifyListeners();
+    await _prepareForLogin();
+    try {
+      final result = await _municipalities.login(
+        email: email,
+        password: password,
+      );
+      _clearMemory();
+      _municipality = result.account;
+      await _sessions.save(
+        const StoredSession(principal: AuthPrincipal.municipality),
+      );
+      _status = AuthStatus.municipality;
+      notifyListeners();
+    } on Object {
+      _status = AuthStatus.signedOut;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> _setUser(UserLoginResult result) async {
     _clearMemory();
     _user = result.account;
-    _refreshToken = result.tokens.refreshToken;
-    await _sessions.save(
-      StoredSession(
-        principal: AuthPrincipal.user,
-        subjectId: result.account.id,
-        refreshToken: result.tokens.refreshToken,
-      ),
-    );
+    await _sessions.save(const StoredSession(principal: AuthPrincipal.user));
     _status = AuthStatus.user;
     notifyListeners();
   }
 
   Future<void> logout() async {
-    final token = _refreshToken;
     try {
-      if (token != null && _status == AuthStatus.user) {
-        await _users.logoutUser(token);
-      } else if (token != null && _status == AuthStatus.municipality) {
-        await _municipalities.logout(token);
+      if (_status == AuthStatus.user) {
+        await _users.logoutUser();
+      } else if (_status == AuthStatus.municipality) {
+        await _municipalities.logout();
       }
     } finally {
-      await _sessions.clear();
+      await _clearPersistedAuthentication();
       _clearMemory();
       _status = AuthStatus.signedOut;
       notifyListeners();
     }
   }
 
+  Future<void> _prepareForLogin() async {
+    await _clearPersistedAuthentication();
+    _clearMemory();
+    _status = AuthStatus.signedOut;
+  }
+
+  Future<void> _clearPersistedAuthentication() async {
+    await Future.wait([
+      _users.clearLocalSession(),
+      _municipalities.clearLocalSession(),
+      _sessions.clear(),
+    ]);
+  }
+
   void _clearMemory() {
     _user = null;
     _municipality = null;
-    _refreshToken = null;
   }
 }

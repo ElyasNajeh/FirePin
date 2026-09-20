@@ -1,16 +1,16 @@
 from pydantic import BaseModel, Field, field_validator
 
-from app.features.users.schema import normalize_phone, validate_pin_value
+from app.features.users.schema import validate_national_id_value, validate_pin_value
 
 
 class LoginRequest(BaseModel):
-    phone: str
+    national_id: str
     pin: str
 
-    @field_validator("phone")
+    @field_validator("national_id")
     @classmethod
-    def validate_phone(cls, value: str) -> str:
-        return normalize_phone(value)
+    def validate_national_id(cls, value: str) -> str:
+        return validate_national_id_value(value)
 
     @field_validator("pin")
     @classmethod

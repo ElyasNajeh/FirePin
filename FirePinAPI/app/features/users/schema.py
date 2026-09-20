@@ -17,6 +17,13 @@ def validate_pin_value(value: str) -> str:
     return value
 
 
+def validate_national_id_value(value: str) -> str:
+    normalized = re.sub(r"[\s-]", "", value)
+    if not re.fullmatch(r"[0-9]{9}", normalized):
+        raise ValueError("National ID must contain exactly 9 digits")
+    return normalized
+
+
 class UserRegister(BaseModel):
     full_name: str
     phone: str
@@ -40,10 +47,7 @@ class UserRegister(BaseModel):
     @field_validator("national_id")
     @classmethod
     def validate_national_id(cls, value: str) -> str:
-        normalized = re.sub(r"[\s-]", "", value)
-        if not re.fullmatch(r"[0-9]{9}", normalized):
-            raise ValueError("National ID must contain exactly 9 digits")
-        return normalized
+        return validate_national_id_value(value)
 
     @field_validator("birth_date")
     @classmethod

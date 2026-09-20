@@ -1,5 +1,8 @@
+import '../core/config/api_config.dart';
+import '../core/network/api_client.dart';
 import '../core/services/camera_service.dart';
 import '../core/services/device_services.dart';
+import '../core/storage/token_storage.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_repositories.dart';
 import '../features/incidents/incident_controller.dart';
@@ -8,7 +11,8 @@ import '../features/municipality/municipality_repository.dart';
 import '../features/notifications/notification_service.dart';
 import '../features/onboarding/onboarding_services.dart';
 
-/// Replace the mock implementations here when the API is ready.
+/// Application composition root. Non-authentication features remain mocked
+/// until their integration stages are implemented.
 class AppServices {
   AppServices({
     IdentityVerificationService? identity,
@@ -26,6 +30,10 @@ class AppServices {
     MunicipalityAuthRepository? municipalityAuth,
     SessionRepository? sessions,
     FirePinNotificationService? notifications,
+    String? apiBaseUrl,
+    TokenStorage? tokenStorage,
+    ApiClient? userApiClient,
+    ApiClient? municipalityApiClient,
   }) {
     this.identity = identity ?? const MockIdentityVerificationService();
     this.otp = otp ?? MockOtpService();
@@ -42,9 +50,22 @@ class AppServices {
         );
     this.operations =
         operations ?? LocalMunicipalityRepository(incidents: this.incidents);
-    final userAuth = auth ?? DemoAuthRepository(this.operations);
-    final authorityAuth = municipalityAuth ?? DemoMunicipalityAuthRepository();
-    this.sessions = sessions ?? SecureSessionRepository();
+    final storage = tokenStorage ?? TokenStorage();
+    final baseUrl = resolveApiBaseUrl(override: apiBaseUrl);
+    final userApi =
+        userApiClient ?? ApiClient(baseUrl: baseUrl, tokenStorage: storage);
+    final municipalityApi =
+        municipalityApiClient ??
+        ApiClient(
+          baseUrl: baseUrl,
+          tokenStorage: storage,
+          refreshPath: '/municipalities/auth/refresh',
+        );
+    final userAuth = auth ?? ApiAuthRepository(api: userApi, storage: storage);
+    final authorityAuth =
+        municipalityAuth ??
+        ApiMunicipalityAuthRepository(api: municipalityApi, storage: storage);
+    this.sessions = sessions ?? SecureSessionRepository(storage: storage);
     this.notifications = notifications ?? FirePinNotificationService();
     authController = AuthController(
       users: userAuth,

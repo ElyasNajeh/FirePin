@@ -109,7 +109,12 @@ class ApiClient {
       );
     }
 
-    var token = _accessToken ?? await refreshAccessToken();
+    var refreshed = false;
+    var token = _accessToken;
+    if (token == null) {
+      refreshed = true;
+      token = await refreshAccessToken();
+    }
     if (token == null) {
       throw const AuthenticationException('Login is required');
     }
@@ -125,6 +130,11 @@ class ApiClient {
     } on DioException catch (error) {
       if (error.response?.statusCode != 401) {
         rethrow;
+      }
+
+      if (refreshed) {
+        await clearSession();
+        throw const AuthenticationException('Session has expired');
       }
 
       token = await refreshAccessToken();
@@ -208,7 +218,8 @@ class ApiClient {
       return accessToken;
     } on DioException catch (error) {
       if (error.response?.statusCode == 400 ||
-          error.response?.statusCode == 401) {
+          error.response?.statusCode == 401 ||
+          error.response?.statusCode == 403) {
         await clearSession();
         return null;
       }

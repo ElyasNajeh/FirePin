@@ -69,7 +69,7 @@ void main() {
       auth.loginUser(DemoAuthRepository.citizenNationalId, '9999'),
       throwsA(isA<AuthFailure>()),
     );
-    expect(auth.status, AuthStatus.restoring);
+    expect(auth.status, AuthStatus.signedOut);
     expect(await sessions.read(), isNull);
   });
 

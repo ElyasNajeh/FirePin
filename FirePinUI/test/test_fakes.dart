@@ -7,6 +7,7 @@ import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:firepin_ui/features/incidents/incident_controller.dart';
+import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:flutter/material.dart';
 
 final testPhoto = base64Decode(
@@ -104,15 +105,22 @@ AppServices fakeServices({
   FakeReports? reports,
   OtpService? otp,
   SessionRepository? sessions,
-}) => AppServices(
-  permissions: permissions ?? FakePermissions(),
-  location: location ?? FakeLocation(),
-  camera: () => camera ?? FakeCamera(),
-  reports: reports ?? FakeReports(),
-  sessions: sessions ?? MemorySessionRepository(),
-  identity: const MockIdentityVerificationService(
-    delay: Duration(milliseconds: 1500),
-  ),
-  otp: otp ?? MockOtpService(delay: Duration.zero),
-  incidents: IncidentController(),
-);
+}) {
+  final incidents = IncidentController();
+  final operations = LocalMunicipalityRepository(incidents: incidents);
+  return AppServices(
+    permissions: permissions ?? FakePermissions(),
+    location: location ?? FakeLocation(),
+    camera: () => camera ?? FakeCamera(),
+    reports: reports ?? FakeReports(),
+    sessions: sessions ?? MemorySessionRepository(),
+    identity: const MockIdentityVerificationService(
+      delay: Duration(milliseconds: 1500),
+    ),
+    otp: otp ?? MockOtpService(delay: Duration.zero),
+    incidents: incidents,
+    operations: operations,
+    auth: DemoAuthRepository(operations),
+    municipalityAuth: DemoMunicipalityAuthRepository(),
+  );
+}
