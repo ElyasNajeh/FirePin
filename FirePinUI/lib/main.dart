@@ -14,10 +14,10 @@ Future<void> main() async {
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-  final notifications = FirePinNotificationService();
-  await notifications.initialize();
+  final services = AppServices();
+  await services.notifications.initialize();
 
   SystemChrome.setSystemUIOverlayStyle(AppTheme.systemUi);
 
-  runApp(FirePinApp(services: AppServices(notifications: notifications)));
+  runApp(FirePinApp(services: services));
 }

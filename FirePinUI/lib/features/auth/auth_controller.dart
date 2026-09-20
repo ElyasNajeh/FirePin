@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../onboarding/onboarding_models.dart';
+import '../notifications/notification_api.dart';
+import '../notifications/notification_service.dart';
 import 'auth_models.dart';
 import 'auth_repositories.dart';
 
@@ -9,13 +11,16 @@ class AuthController extends ChangeNotifier {
     required AuthRepository users,
     required MunicipalityAuthRepository municipalities,
     required SessionRepository sessions,
+    AuthenticatedNotificationLifecycle? notifications,
   }) : _users = users,
        _municipalities = municipalities,
-       _sessions = sessions;
+       _sessions = sessions,
+       _notifications = notifications;
 
   final AuthRepository _users;
   final MunicipalityAuthRepository _municipalities;
   final SessionRepository _sessions;
+  final AuthenticatedNotificationLifecycle? _notifications;
 
   AuthStatus _status = AuthStatus.restoring;
   UserAccount? _user;
@@ -30,6 +35,7 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
     final stored = await _sessions.read();
     if (stored == null) {
+      await _detachNotifications();
       await _clearPersistedAuthentication();
       _status = AuthStatus.signedOut;
       notifyListeners();
@@ -39,16 +45,23 @@ class AuthController extends ChangeNotifier {
       if (stored.principal == AuthPrincipal.user) {
         _user = await _users.restoreUser();
         _status = AuthStatus.user;
+        notifyListeners();
+        await _attachNotifications(NotificationAccountType.user);
       } else {
         _municipality = await _municipalities.restore();
         _status = AuthStatus.municipality;
+        notifyListeners();
+        await _attachNotifications(NotificationAccountType.municipality);
       }
     } on Object {
+      await _detachNotifications();
       await _clearPersistedAuthentication();
       _clearMemory();
       _status = AuthStatus.signedOut;
     }
-    notifyListeners();
+    if (_status == AuthStatus.signedOut) {
+      notifyListeners();
+    }
   }
 
   Future<void> loginUser(String nationalId, String pin) async {
@@ -99,6 +112,7 @@ class AuthController extends ChangeNotifier {
       );
       _status = AuthStatus.municipality;
       notifyListeners();
+      await _attachNotifications(NotificationAccountType.municipality);
     } on Object {
       _status = AuthStatus.signedOut;
       notifyListeners();
@@ -112,9 +126,11 @@ class AuthController extends ChangeNotifier {
     await _sessions.save(const StoredSession(principal: AuthPrincipal.user));
     _status = AuthStatus.user;
     notifyListeners();
+    await _attachNotifications(NotificationAccountType.user);
   }
 
   Future<void> logout() async {
+    await _detachNotifications();
     try {
       if (_status == AuthStatus.user) {
         await _users.logoutUser();
@@ -130,6 +146,7 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> _prepareForLogin() async {
+    await _detachNotifications();
     await _clearPersistedAuthentication();
     _clearMemory();
     _status = AuthStatus.signedOut;
@@ -141,6 +158,26 @@ class AuthController extends ChangeNotifier {
       _municipalities.clearLocalSession(),
       _sessions.clear(),
     ]);
+  }
+
+  Future<void> _attachNotifications(NotificationAccountType accountType) async {
+    try {
+      await _notifications?.attachAuthenticatedAccount(accountType);
+    } on Object catch (error) {
+      debugPrint(
+        'Notification account attachment unavailable: ${error.runtimeType}',
+      );
+    }
+  }
+
+  Future<void> _detachNotifications() async {
+    try {
+      await _notifications?.detachAuthenticatedAccount();
+    } on Object catch (error) {
+      debugPrint(
+        'Notification account cleanup unavailable: ${error.runtimeType}',
+      );
+    }
   }
 
   void _clearMemory() {

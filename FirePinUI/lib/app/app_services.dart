@@ -9,10 +9,11 @@ import '../features/incidents/incident_controller.dart';
 import '../features/incidents/shared_mock_incident_client.dart';
 import '../features/municipality/municipality_repository.dart';
 import '../features/notifications/notification_service.dart';
+import '../features/notifications/notification_api.dart';
 import '../features/onboarding/onboarding_services.dart';
 
-/// Application composition root. Non-authentication features remain mocked
-/// until their integration stages are implemented.
+/// Application composition root. Features outside completed integration stages
+/// remain mocked until their integration stages are implemented.
 class AppServices {
   AppServices({
     IdentityVerificationService? identity,
@@ -66,11 +67,19 @@ class AppServices {
         municipalityAuth ??
         ApiMunicipalityAuthRepository(api: municipalityApi, storage: storage);
     this.sessions = sessions ?? SecureSessionRepository(storage: storage);
-    this.notifications = notifications ?? FirePinNotificationService();
+    this.notifications =
+        notifications ??
+        FirePinNotificationService(
+          deviceTokenApi: NotificationDeviceTokenApi(
+            userApi,
+            municipalityApiClient: municipalityApi,
+          ),
+        );
     authController = AuthController(
       users: userAuth,
       municipalities: authorityAuth,
       sessions: this.sessions,
+      notifications: this.notifications,
     );
   }
 

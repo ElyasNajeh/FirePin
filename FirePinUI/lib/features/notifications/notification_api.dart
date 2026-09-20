@@ -5,16 +5,20 @@ import '../../core/network/api_client.dart';
 enum NotificationAccountType { user, municipality }
 
 class NotificationDeviceTokenApi {
-  NotificationDeviceTokenApi(this._apiClient);
+  NotificationDeviceTokenApi(
+    this._userApiClient, {
+    required ApiClient municipalityApiClient,
+  }) : _municipalityApiClient = municipalityApiClient;
 
-  final ApiClient _apiClient;
+  final ApiClient _userApiClient;
+  final ApiClient _municipalityApiClient;
 
   Future<void> registerToken({
     required NotificationAccountType accountType,
     required String token,
     required String platform,
   }) async {
-    await _apiClient.post<Map<String, dynamic>>(
+    await _client(accountType).post<Map<String, dynamic>>(
       _endpoint(accountType),
       data: {'token': token, 'platform': platform},
       requiresAuth: true,
@@ -26,7 +30,7 @@ class NotificationDeviceTokenApi {
     required String token,
   }) async {
     try {
-      await _apiClient.delete<Map<String, dynamic>>(
+      await _client(accountType).delete<Map<String, dynamic>>(
         _endpoint(accountType),
         data: {'token': token},
         requiresAuth: true,
@@ -43,6 +47,13 @@ class NotificationDeviceTokenApi {
       NotificationAccountType.user => '/device-tokens',
       NotificationAccountType.municipality =>
         '/municipalities/auth/device-tokens',
+    };
+  }
+
+  ApiClient _client(NotificationAccountType accountType) {
+    return switch (accountType) {
+      NotificationAccountType.user => _userApiClient,
+      NotificationAccountType.municipality => _municipalityApiClient,
     };
   }
 }

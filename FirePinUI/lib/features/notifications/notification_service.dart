@@ -18,15 +18,24 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 }
 
-class FirePinNotificationService {
+abstract interface class AuthenticatedNotificationLifecycle {
+  Future<void> attachAuthenticatedAccount(NotificationAccountType accountType);
+  Future<void> detachAuthenticatedAccount();
+}
+
+class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
   FirePinNotificationService({
     FirebaseMessaging? messaging,
     FlutterLocalNotificationsPlugin? localNotifications,
     NotificationDeviceTokenApi? deviceTokenApi,
+    Future<String?> Function()? tokenProvider,
+    String? platformOverride,
   }) : _providedMessaging = messaging,
        _localNotifications =
            localNotifications ?? FlutterLocalNotificationsPlugin(),
-       _deviceTokenApi = deviceTokenApi;
+       _deviceTokenApi = deviceTokenApi,
+       _tokenProvider = tokenProvider,
+       _platformOverride = platformOverride;
 
   static const _emergencyChannel = AndroidNotificationChannel(
     fireEmergencyChannelId,
@@ -44,6 +53,8 @@ class FirePinNotificationService {
   final FirebaseMessaging? _providedMessaging;
   final FlutterLocalNotificationsPlugin _localNotifications;
   final NotificationDeviceTokenApi? _deviceTokenApi;
+  final Future<String?> Function()? _tokenProvider;
+  final String? _platformOverride;
   final StreamController<String> _reportTapController =
       StreamController<String>.broadcast();
 
@@ -51,8 +62,11 @@ class FirePinNotificationService {
   StreamSubscription<RemoteMessage>? _openedSubscription;
   StreamSubscription<String>? _tokenRefreshSubscription;
   NotificationAccountType? _accountType;
+  NotificationAccountType? _registeredAccountType;
   String? _currentToken;
+  String? _registeredToken;
   String? _initialReportId;
+  Future<void> _ownershipOperations = Future<void>.value();
 
   Stream<String> get reportTaps => _reportTapController.stream;
 
@@ -75,7 +89,7 @@ class FirePinNotificationService {
       );
       await _initializeLocalNotifications();
 
-      _currentToken = await _messaging.getToken();
+      _currentToken = await _getToken();
       _tokenRefreshSubscription = _messaging.onTokenRefresh.listen(
         (token) => unawaited(_handleTokenRefresh(token)),
       );
@@ -103,36 +117,55 @@ class FirePinNotificationService {
     }
   }
 
-  Future<void> attachAuthenticatedAccount(
-    NotificationAccountType accountType,
-  ) async {
+  @override
+  Future<void> attachAuthenticatedAccount(NotificationAccountType accountType) {
+    return _enqueueOwnershipOperation(() => _attachAccount(accountType));
+  }
+
+  Future<void> _attachAccount(NotificationAccountType accountType) async {
     final api = _deviceTokenApi;
     if (api == null) {
       throw StateError('Notification device-token API is not configured');
     }
 
     _accountType = accountType;
-    final token = _currentToken ?? await _messaging.getToken();
+    final token = _currentToken ?? await _getToken();
     _currentToken = token;
-    if (token != null) {
-      await api.registerToken(
-        accountType: accountType,
-        token: token,
-        platform: _platformName,
-      );
+    if (token == null) {
+      return;
     }
+
+    if (_registeredAccountType == accountType) {
+      await _replaceRegisteredToken(token);
+      return;
+    }
+
+    await api.registerToken(
+      accountType: accountType,
+      token: token,
+      platform: _platformName,
+    );
+    _registeredAccountType = accountType;
+    _registeredToken = token;
   }
 
-  Future<void> detachAuthenticatedAccount() async {
+  @override
+  Future<void> detachAuthenticatedAccount() {
+    return _enqueueOwnershipOperation(_detachAccount);
+  }
+
+  Future<void> _detachAccount() async {
     final api = _deviceTokenApi;
     final accountType = _accountType;
-    final token = _currentToken;
+    final token = _registeredToken;
     try {
       if (api != null && accountType != null && token != null) {
         await api.removeToken(accountType: accountType, token: token);
       }
     } finally {
       _accountType = null;
+      _registeredAccountType = null;
+      _registeredToken = null;
     }
   }
 
@@ -206,27 +239,56 @@ class FirePinNotificationService {
   }
 
   Future<void> _handleTokenRefresh(String token) async {
-    final previousToken = _currentToken;
     _currentToken = token;
 
-    final api = _deviceTokenApi;
-    final accountType = _accountType;
-    if (api == null || accountType == null) {
-      return;
-    }
-
     try {
-      await api.registerToken(
-        accountType: accountType,
-        token: token,
-        platform: _platformName,
-      );
-      if (previousToken != null && previousToken != token) {
-        await api.removeToken(accountType: accountType, token: previousToken);
-      }
+      await _enqueueOwnershipOperation(() => _replaceRegisteredToken(token));
     } on Object catch (error) {
       debugPrint('Unable to update notification token: ${error.runtimeType}');
     }
+  }
+
+  Future<void> _replaceRegisteredToken(String token) async {
+    final api = _deviceTokenApi;
+    final accountType = _accountType;
+    final previousToken = _registeredToken;
+    if (api == null || accountType == null || previousToken == token) {
+      return;
+    }
+
+    await api.registerToken(
+      accountType: accountType,
+      token: token,
+      platform: _platformName,
+    );
+    _registeredAccountType = accountType;
+    _registeredToken = token;
+    if (previousToken != null) {
+      await api.removeToken(accountType: accountType, token: previousToken);
+    }
+  }
+
+  Future<void> _enqueueOwnershipOperation(Future<void> Function() operation) {
+    final result = _ownershipOperations.then((_) => operation());
+    _ownershipOperations = _ignoreOwnershipFailure(result);
+    return result;
+  }
+
+  Future<void> _ignoreOwnershipFailure(Future<void> operation) async {
+    try {
+      await operation;
+    } on Object {
+      // The caller receives the error; keep later ownership operations usable.
+    }
+  }
+
+  Future<String?> _getToken() {
+    return _tokenProvider?.call() ?? _messaging.getToken();
+  }
+
+  @visibleForTesting
+  Future<void> handleTokenRefreshForTest(String token) {
+    return _handleTokenRefresh(token);
   }
 
   void _handleRemoteMessageTap(RemoteMessage message) {
@@ -273,6 +335,10 @@ class FirePinNotificationService {
   }
 
   String get _platformName {
+    final override = _platformOverride;
+    if (override != null) {
+      return override;
+    }
     return switch (defaultTargetPlatform) {
       TargetPlatform.android => 'android',
       TargetPlatform.iOS => 'ios',

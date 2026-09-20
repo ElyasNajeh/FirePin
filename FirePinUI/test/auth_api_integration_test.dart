@@ -12,6 +12,8 @@ import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:firepin_ui/features/home/home_screen.dart';
 import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/municipality/municipality_repository.dart';
+import 'package:firepin_ui/features/notifications/notification_api.dart';
+import 'package:firepin_ui/features/notifications/notification_service.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,6 +74,42 @@ void main() {
     );
   });
 
+  test('user login registers the device token as the user', () async {
+    final fixture = AuthApiFixture();
+    final controller = fixture.controllerWithNotifications();
+
+    await controller.loginUser('123456789', '1234');
+
+    final registration = fixture.adapter.request(
+      '/device-tokens',
+      method: 'POST',
+    );
+    expect(registration.data, {'token': 'fcm-token', 'platform': 'android'});
+    expect(registration.headers['Authorization'], 'Bearer user-access');
+    controller.dispose();
+  });
+
+  test(
+    'municipality login registers the device token as municipality',
+    () async {
+      final fixture = AuthApiFixture();
+      final controller = fixture.controllerWithNotifications();
+
+      await controller.loginMunicipality('municipality@firepin.ps', 'password');
+
+      final registration = fixture.adapter.request(
+        '/municipalities/auth/device-tokens',
+        method: 'POST',
+      );
+      expect(registration.data, {'token': 'fcm-token', 'platform': 'android'});
+      expect(
+        registration.headers['Authorization'],
+        'Bearer municipality-access',
+      );
+      controller.dispose();
+    },
+  );
+
   test('registration is followed by national-ID login', () async {
     final fixture = AuthApiFixture();
     final session = OnboardingSession()
@@ -95,6 +133,27 @@ void main() {
       'birth_date': '1998-05-14',
       'pin': '1234',
     });
+  });
+
+  test('registration-login attaches user device-token ownership', () async {
+    final fixture = AuthApiFixture();
+    final controller = fixture.controllerWithNotifications();
+    final session = OnboardingSession()
+      ..identity = const IdentityData(
+        fullName: 'New User',
+        identityNumber: '123456789',
+        birthDate: '14 / 05 / 1998',
+        gender: '',
+        address: '',
+      )
+      ..phone = '0591234567';
+    expect(session.savePin('1234', '1234'), isTrue);
+
+    await controller.completeRegistration(session);
+
+    expect(fixture.adapter.paths, contains('/device-tokens'));
+    expect(controller.status, AuthStatus.user);
+    controller.dispose();
   });
 
   test('access expiry refreshes once and retries once', () async {
@@ -242,6 +301,162 @@ void main() {
     municipalityController.dispose();
   });
 
+  test('cold restoration registers tokens for both principal types', () async {
+    final userFixture = AuthApiFixture();
+    userFixture.storage.refreshToken = 'user-refresh';
+    final userSessions = MemorySessionRepository()
+      ..value = const StoredSession(principal: AuthPrincipal.user);
+    final userController = userFixture.controllerWithNotifications(
+      sessions: userSessions,
+    );
+
+    await userController.restore();
+
+    expect(userFixture.adapter.paths, contains('/device-tokens'));
+    expect(userController.status, AuthStatus.user);
+    userController.dispose();
+
+    final municipalityFixture = AuthApiFixture();
+    municipalityFixture.storage.refreshToken = 'municipality-refresh';
+    final municipalitySessions = MemorySessionRepository()
+      ..value = const StoredSession(principal: AuthPrincipal.municipality);
+    final municipalityController = municipalityFixture
+        .controllerWithNotifications(sessions: municipalitySessions);
+
+    await municipalityController.restore();
+
+    expect(
+      municipalityFixture.adapter.paths,
+      contains('/municipalities/auth/device-tokens'),
+    );
+    expect(municipalityController.status, AuthStatus.municipality);
+    municipalityController.dispose();
+  });
+
+  test('user and municipality logout remove ownership before auth', () async {
+    final userFixture = AuthApiFixture();
+    final userController = userFixture.controllerWithNotifications();
+    await userController.loginUser('123456789', '1234');
+
+    await userController.logout();
+
+    expect(
+      userFixture.adapter.indexOf('/device-tokens', method: 'DELETE'),
+      lessThan(userFixture.adapter.indexOf('/auth/logout', method: 'POST')),
+    );
+    expect(userController.status, AuthStatus.signedOut);
+    userController.dispose();
+
+    final municipalityFixture = AuthApiFixture();
+    final municipalityController = municipalityFixture
+        .controllerWithNotifications();
+    await municipalityController.loginMunicipality(
+      'municipality@firepin.ps',
+      'password',
+    );
+
+    await municipalityController.logout();
+
+    expect(
+      municipalityFixture.adapter.indexOf(
+        '/municipalities/auth/device-tokens',
+        method: 'DELETE',
+      ),
+      lessThan(
+        municipalityFixture.adapter.indexOf(
+          '/municipalities/auth/logout',
+          method: 'POST',
+        ),
+      ),
+    );
+    expect(municipalityController.status, AuthStatus.signedOut);
+    municipalityController.dispose();
+  });
+
+  test('device-token cleanup failure cannot block logout', () async {
+    final fixture = AuthApiFixture();
+    final controller = fixture.controllerWithNotifications();
+    await controller.loginUser('123456789', '1234');
+    fixture.failDeviceTokenRemoval = true;
+
+    await controller.logout();
+
+    expect(controller.status, AuthStatus.signedOut);
+    expect(fixture.storage.refreshToken, isNull);
+    expect(fixture.adapter.paths, contains('/auth/logout'));
+    controller.dispose();
+  });
+
+  test(
+    'account switching removes old ownership before registering new',
+    () async {
+      final fixture = AuthApiFixture();
+      final controller = fixture.controllerWithNotifications();
+      await controller.loginUser('123456789', '1234');
+
+      await controller.loginMunicipality('municipality@firepin.ps', 'password');
+
+      final removeUser = fixture.adapter.indexOf(
+        '/device-tokens',
+        method: 'DELETE',
+      );
+      final municipalityLogin = fixture.adapter.indexOf(
+        '/municipalities/auth/login',
+        method: 'POST',
+      );
+      final registerMunicipality = fixture.adapter.indexOf(
+        '/municipalities/auth/device-tokens',
+        method: 'POST',
+      );
+      expect(removeUser, lessThan(municipalityLogin));
+      expect(municipalityLogin, lessThan(registerMunicipality));
+      expect(controller.user, isNull);
+      expect(controller.status, AuthStatus.municipality);
+
+      final reverseSwitchStart = fixture.adapter.requests.length;
+      await controller.loginUser('123456789', '1234');
+      final reverseSwitch = fixture.adapter.requests
+          .skip(reverseSwitchStart)
+          .map((request) => '${request.method} ${request.path}')
+          .toList();
+      expect(
+        reverseSwitch.indexOf('DELETE /municipalities/auth/device-tokens'),
+        lessThan(reverseSwitch.indexOf('POST /auth/login')),
+      );
+      expect(
+        reverseSwitch.indexOf('POST /auth/login'),
+        lessThan(reverseSwitch.indexOf('POST /device-tokens')),
+      );
+      expect(controller.municipality, isNull);
+      expect(controller.status, AuthStatus.user);
+      controller.dispose();
+    },
+  );
+
+  test('missing or unavailable FCM token does not break login', () async {
+    final missingFixture = AuthApiFixture();
+    final missingController = missingFixture.controllerWithNotifications(
+      tokenProvider: () async => null,
+    );
+
+    await missingController.loginUser('123456789', '1234');
+
+    expect(missingController.status, AuthStatus.user);
+    expect(missingFixture.adapter.paths, isNot(contains('/device-tokens')));
+    missingController.dispose();
+
+    final deniedFixture = AuthApiFixture();
+    final deniedController = deniedFixture.controllerWithNotifications(
+      tokenProvider: () async => throw StateError('permission denied'),
+    );
+
+    await deniedController.loginUser('123456789', '1234');
+
+    expect(deniedController.status, AuthStatus.user);
+    expect(deniedFixture.adapter.paths, isNot(contains('/device-tokens')));
+    deniedController.dispose();
+  });
+
   test('terminal refresh clears secure and principal sessions', () async {
     final fixture = AuthApiFixture()..terminalUserRefresh = true;
     fixture.storage.refreshToken = 'revoked-refresh';
@@ -371,6 +586,32 @@ class AuthApiFixture {
   bool protectedRejectsOldAccess = false;
   bool protectedAlwaysUnauthorized = false;
   bool terminalUserRefresh = false;
+  bool failDeviceTokenRemoval = false;
+
+  FirePinNotificationService notificationService({
+    Future<String?> Function()? tokenProvider,
+  }) {
+    return FirePinNotificationService(
+      deviceTokenApi: NotificationDeviceTokenApi(
+        userApi,
+        municipalityApiClient: municipalityApi,
+      ),
+      tokenProvider: tokenProvider ?? () async => 'fcm-token',
+      platformOverride: 'android',
+    );
+  }
+
+  AuthController controllerWithNotifications({
+    SessionRepository? sessions,
+    Future<String?> Function()? tokenProvider,
+  }) {
+    return AuthController(
+      users: userRepository,
+      municipalities: municipalityRepository,
+      sessions: sessions ?? MemorySessionRepository(),
+      notifications: notificationService(tokenProvider: tokenProvider),
+    );
+  }
 }
 
 class MemoryTokenStorage extends TokenStorage {
@@ -405,8 +646,14 @@ class AuthAdapter implements HttpClientAdapter {
   int count(String path) =>
       requests.where((request) => request.path == path).length;
 
-  RequestOptions request(String path) =>
-      requests.firstWhere((request) => request.path == path);
+  RequestOptions request(String path, {String? method}) => requests.firstWhere(
+    (request) =>
+        request.path == path && (method == null || request.method == method),
+  );
+
+  int indexOf(String path, {required String method}) => requests.indexWhere(
+    (request) => request.path == path && request.method == method,
+  );
 
   @override
   Future<ResponseBody> fetch(
@@ -469,6 +716,21 @@ class AuthAdapter implements HttpClientAdapter {
     }
     if (path == '/municipalities/auth/logout') {
       return jsonResponse(200, {'message': 'ok'});
+    }
+    if (path == '/device-tokens' ||
+        path == '/municipalities/auth/device-tokens') {
+      if (options.method == 'DELETE' && fixture.failDeviceTokenRemoval) {
+        return jsonResponse(500, {'detail': 'temporary failure'});
+      }
+      return jsonResponse(200, {
+        if (options.method == 'POST') ...{
+          'id': 1,
+          'platform': 'android',
+          'created_at': '2026-09-20T10:00:00Z',
+          'updated_at': '2026-09-20T10:00:00Z',
+        } else
+          'message': 'Device token removed successfully',
+      });
     }
     if (path == '/protected') {
       final authorization = options.headers['Authorization'];
