@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     UPLOAD_ROOT: Path
     FIREBASE_CREDENTIALS_PATH: Path | None = None
+    VALHALLA_BASE_URL: str = "http://valhalla:8002"
+    VALHALLA_TIMEOUT_SECONDS: float = Field(default=10, gt=0)
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

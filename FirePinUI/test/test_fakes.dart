@@ -75,10 +75,16 @@ class FakeCamera implements CameraSource {
 class FakeReports implements FireReportService {
   int submissions = 0;
   bool hasPhoto = false;
+  String? pin;
   @override
-  Future<void> submit({Uint8List? photo, required LocationFix location}) async {
+  Future<void> submit({
+    Uint8List? photo,
+    String? pin,
+    required LocationFix location,
+  }) async {
     submissions++;
     hasPhoto = photo != null;
+    this.pin = pin;
   }
 }
 

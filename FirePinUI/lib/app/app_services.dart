@@ -11,6 +11,7 @@ import '../features/municipality/municipality_repository.dart';
 import '../features/notifications/notification_service.dart';
 import '../features/notifications/notification_api.dart';
 import '../features/onboarding/onboarding_services.dart';
+import '../features/report/fire_report_repository.dart';
 
 /// Application composition root. Features outside completed integration stages
 /// remain mocked until their integration stages are implemented.
@@ -20,6 +21,7 @@ class AppServices {
     OtpService? otp,
     VolunteerApplicationService? volunteer,
     FireReportService? reports,
+    FireReportRepository? reportRepository,
     DevicePermissions? permissions,
     LocationService? location,
     CameraSourceFactory? camera,
@@ -39,20 +41,26 @@ class AppServices {
   }) {
     this.identity = identity ?? const MockIdentityVerificationService();
     this.otp = otp ?? MockOtpService();
-    this.reports = reports ?? const MockFireReportService();
     this.permissions = permissions ?? NativeDevicePermissions();
     this.location = location ?? NativeLocationService();
     this.camera = camera ?? NativeCameraSource.new;
     this.incidents =
         incidents ??
         IncidentController(
-          sharedClient: sharedIncidents ?? DioSharedMockIncidentClient(),
+          sharedClient: sharedIncidents,
           pollInterval: incidentPollInterval,
         );
     final storage = tokenStorage ?? TokenStorage();
     final baseUrl = resolveApiBaseUrl(override: apiBaseUrl);
     final userApi =
         userApiClient ?? ApiClient(baseUrl: baseUrl, tokenStorage: storage);
+    final apiReports = ApiFireReportRepository(userApi);
+    this.reports = reports ?? apiReports;
+    this.reportRepository =
+        reportRepository ??
+        (this.reports is FireReportRepository
+            ? this.reports as FireReportRepository
+            : null);
     this.volunteer = volunteer ?? ApiVolunteerApplicationService(userApi);
     this.municipalityDirectory =
         municipalityDirectory ?? ApiMunicipalityDirectoryRepository(userApi);
@@ -94,6 +102,7 @@ class AppServices {
   late final OtpService otp;
   late final VolunteerApplicationService volunteer;
   late final FireReportService reports;
+  late final FireReportRepository? reportRepository;
   late final DevicePermissions permissions;
   late final LocationService location;
   late final CameraSourceFactory camera;

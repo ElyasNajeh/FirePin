@@ -107,10 +107,16 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(_municipalityMarker('user-volunteer'), findsOneWidget);
-      expect(_municipalityMarker('user-volunteer-2'), findsOneWidget);
-      expect(_municipalityRoute('user-volunteer'), findsOneWidget);
-      expect(_municipalityRoute('user-volunteer-2'), findsOneWidget);
+      expect(
+        operations.incidents
+            .singleWhere((incident) => incident.id == 'demo-incident-1')
+            .responderCount,
+        2,
+      );
+      expect(_municipalityMarker('user-volunteer'), findsNothing);
+      expect(_municipalityMarker('user-volunteer-2'), findsNothing);
+      expect(_municipalityRoute('user-volunteer'), findsNothing);
+      expect(_municipalityRoute('user-volunteer-2'), findsNothing);
 
       shared.snapshots = [
         _incident(responders: const ['user-volunteer-2']),
@@ -118,7 +124,13 @@ void main() {
       await municipality.refresh();
       await tester.pump();
       expect(_municipalityMarker('user-volunteer'), findsNothing);
-      expect(_municipalityMarker('user-volunteer-2'), findsOneWidget);
+      expect(
+        operations.incidents
+            .singleWhere((incident) => incident.id == 'demo-incident-1')
+            .responderCount,
+        1,
+      );
+      expect(_municipalityMarker('user-volunteer-2'), findsNothing);
 
       shared.snapshots = [_incident(active: false)];
       await municipality.refresh();

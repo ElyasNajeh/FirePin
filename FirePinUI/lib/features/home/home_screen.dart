@@ -9,6 +9,9 @@ import '../alerts/alerts_screen.dart';
 import '../incidents/incident_controller.dart';
 import '../incidents/incident_screen.dart';
 import '../onboarding/onboarding_models.dart';
+import '../report/fire_report_repository.dart';
+import '../report/fire_reports_screen.dart';
+import '../../core/services/device_services.dart';
 
 /// Authenticated product shell. All role views observe one incident controller.
 class HomeScreen extends StatefulWidget {
@@ -20,6 +23,8 @@ class HomeScreen extends StatefulWidget {
     this.incidentController,
     this.onLogout,
     this.onApplyVolunteer,
+    this.reportRepository,
+    this.location,
   });
 
   final bool hasLocation;
@@ -28,6 +33,8 @@ class HomeScreen extends StatefulWidget {
   final IncidentController? incidentController;
   final Future<void> Function()? onLogout;
   final VoidCallback? onApplyVolunteer;
+  final FireReportRepository? reportRepository;
+  final LocationService? location;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -78,14 +85,22 @@ class _HomeScreenState extends State<HomeScreen> {
             : AppMotion.selection,
         child: switch (_section) {
           AppSection.home => _buildHome(),
-          AppSection.alerts => AlertsScreen(
-            key: const ValueKey('alerts'),
-            role: _session.role,
-            controller: _incidents,
-            isReporter: _isReporter,
-            viewerId: _session.participantId,
-            onOpenIncident: () => _changeSection(AppSection.home),
-          ),
+          AppSection.alerts =>
+            widget.reportRepository != null && widget.location != null
+                ? FireReportsScreen(
+                    key: const ValueKey('real-reports'),
+                    role: _session.role,
+                    repository: widget.reportRepository!,
+                    location: widget.location!,
+                  )
+                : AlertsScreen(
+                    key: const ValueKey('alerts'),
+                    role: _session.role,
+                    controller: _incidents,
+                    isReporter: _isReporter,
+                    viewerId: _session.participantId,
+                    onOpenIncident: () => _changeSection(AppSection.home),
+                  ),
           AppSection.account => AccountScreen(
             key: const ValueKey('account'),
             session: _session,

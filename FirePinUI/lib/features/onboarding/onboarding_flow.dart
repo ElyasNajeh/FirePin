@@ -171,23 +171,14 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       onReport: () => _go(OnboardingStep.fireCamera),
       session: _session,
       incidentController: widget.services.incidents,
+      reportRepository: widget.services.reportRepository,
+      location: widget.services.location,
     ),
     OnboardingStep.fireCamera => FireCameraScreen(
       services: widget.services,
       session: _session,
       onClose: _back,
-      onSubmitted: (photo) async {
-        final submitted = await widget.services.incidents.report(
-          location: _session.location!,
-          reporterPhone: _session.phone,
-          reporterId: _session.participantId,
-          reporterName: _session.identity?.fullName,
-          reporterNationalId: _session.identity?.identityNumber,
-          photo: photo,
-        );
-        if (!submitted) {
-          throw StateError('Shared demo incident creation failed.');
-        }
+      onSubmitted: (_) async {
         if (!mounted) return;
         _go(OnboardingStep.home, clear: true);
       },

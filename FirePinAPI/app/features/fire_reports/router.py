@@ -19,6 +19,8 @@ from app.features.fire_reports.schema import (
 )
 from app.features.municipalities.model import Municipality
 from app.features.municipalities.service import get_current_municipality
+from app.features.routing.schema import FireReportRouteResponse, RouteOrigin
+from app.features.routing.service import routing_service
 from app.features.users.model import User
 from app.features.volunteers import service as volunteer_service
 from app.features.volunteers.model import Volunteer
@@ -110,6 +112,26 @@ async def get_volunteer_report(
     db: AsyncSession = Depends(get_db),
 ) -> FireReport:
     return await service.get_volunteer_report(db, volunteer, report_id)
+
+
+@router.post(
+    "/volunteers/me/fire-reports/{report_id}/route",
+    response_model=FireReportRouteResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_volunteer_report_route(
+    origin: RouteOrigin,
+    report_id: Annotated[int, Path(gt=0)],
+    volunteer: Volunteer = Depends(get_current_volunteer),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    report = await service.get_volunteer_report(db, volunteer, report_id)
+    return await routing_service.route(
+        origin.latitude,
+        origin.longitude,
+        report.latitude,
+        report.longitude,
+    )
 
 
 @router.post(

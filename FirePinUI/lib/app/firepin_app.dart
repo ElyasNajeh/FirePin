@@ -36,6 +36,10 @@ class _FirePinAppState extends State<FirePinApp> {
   }
 
   void _syncIncidentPolling() {
+    if (_services.reportRepository != null) {
+      _services.incidents.stopPolling();
+      return;
+    }
     switch (_services.authController.status) {
       case AuthStatus.user || AuthStatus.municipality:
         unawaited(_services.incidents.startPolling());
@@ -97,7 +101,6 @@ class _FirePinAppState extends State<FirePinApp> {
         address: account.address,
       )
       ..phone = account.phone
-      ..location = const LocationFix(31.78, 35.24, 10)
       ..role = account.role
       ..applicationStatus = account.applicationStatus;
     if (_applyingVolunteer) {
@@ -116,27 +119,18 @@ class _FirePinAppState extends State<FirePinApp> {
         services: _services,
         session: session,
         onClose: () => setState(() => _reporting = false),
-        onSubmitted: (photo) async {
-          final submitted = await _services.incidents.report(
-            location: session.location!,
-            reporterPhone: session.phone,
-            reporterId: account.id,
-            reporterName: account.fullName,
-            reporterNationalId: account.nationalId,
-            photo: photo,
-          );
-          if (!submitted) {
-            throw StateError('Shared demo incident creation failed.');
-          }
+        onSubmitted: (_) async {
           if (!mounted) return;
           setState(() => _reporting = false);
         },
       );
     }
     return HomeScreen(
-      hasLocation: true,
+      hasLocation: session.location != null,
       session: session,
       incidentController: _services.incidents,
+      reportRepository: _services.reportRepository,
+      location: _services.location,
       onReport: () => setState(() => _reporting = true),
       onLogout: () async {
         _reporting = false;

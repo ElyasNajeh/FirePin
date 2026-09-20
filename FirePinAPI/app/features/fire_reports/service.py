@@ -115,7 +115,7 @@ async def create_report(
             )
         if not verify_password(pin, reporter.pin_hash):
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="PIN verification failed",
             )
 

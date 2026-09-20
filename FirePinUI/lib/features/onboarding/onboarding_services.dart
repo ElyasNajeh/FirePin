@@ -88,14 +88,9 @@ class ApiVolunteerApplicationService implements VolunteerApplicationService {
 }
 
 abstract interface class FireReportService {
-  Future<void> submit({Uint8List? photo, required LocationFix location});
-}
-
-/// Local simulation only. Neither photos nor coordinates leave the device.
-class MockFireReportService implements FireReportService {
-  const MockFireReportService();
-  @override
-  Future<void> submit({Uint8List? photo, required LocationFix location}) async {
-    await Future<void>.delayed(const Duration(milliseconds: 650));
-  }
+  Future<void> submit({
+    Uint8List? photo,
+    String? pin,
+    required LocationFix location,
+  });
 }

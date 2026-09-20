@@ -404,7 +404,7 @@ void main() {
   });
 
   testWidgets(
-    'no-photo report requires the correct PIN before location and submission',
+    'no-photo report forwards PIN only after acquiring a real location',
     (tester) async {
       mobileSize(tester);
       final location = FakeLocation()..failure = LocationProblem.denied;
@@ -447,15 +447,6 @@ void main() {
 
       await tester.enterText(
         find.byKey(const ValueKey('رمز تأكيد البلاغ')),
-        '9999',
-      );
-      await tapLabel(tester, 'تأكيد الإرسال');
-      expect(find.text('رمز الدخول غير صحيح. حاول مجددًا.'), findsOneWidget);
-      expect(reports.submissions, 0);
-      expect(location.requests, 0);
-
-      await tester.enterText(
-        find.byKey(const ValueKey('رمز تأكيد البلاغ')),
         DemoAuthRepository.citizenPin,
       );
       await tapLabel(tester, 'تأكيد الإرسال');
@@ -472,6 +463,7 @@ void main() {
       await tapLabel(tester, 'تأكيد الإرسال');
       expect(reports.submissions, 1);
       expect(reports.hasPhoto, isFalse);
+      expect(reports.pin, DemoAuthRepository.citizenPin);
       expect(submitted, isTrue);
       expect(tester.takeException(), isNull);
     },

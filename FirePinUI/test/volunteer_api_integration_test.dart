@@ -523,6 +523,9 @@ class Stage4Adapter implements HttpClientAdapter {
         'total': items.length,
       });
     }
+    if (path == '/municipalities/auth/fire-reports') {
+      return response(200, {'items': [], 'page': 1, 'limit': 100, 'total': 0});
+    }
     return response(404, {'detail': 'not found'});
   }
 

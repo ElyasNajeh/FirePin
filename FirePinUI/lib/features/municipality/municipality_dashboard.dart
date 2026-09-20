@@ -7,7 +7,6 @@ import '../../theme/app_theme.dart';
 import '../auth/auth_models.dart';
 import '../incidents/incident_controller.dart';
 import '../onboarding/onboarding_models.dart';
-import 'municipality_map_layout.dart';
 import 'municipality_repository.dart';
 
 enum MunicipalitySection {
@@ -549,8 +548,6 @@ class _StatCard extends StatelessWidget {
 class _OperationsMap extends StatelessWidget {
   const _OperationsMap({required this.incidents});
   final List<MunicipalityIncidentRecord> incidents;
-  static const MunicipalityResponderMapLayout _responderLayout =
-      DeterministicMockResponderMapLayout();
 
   @override
   Widget build(BuildContext context) => SurfaceCard(
@@ -567,9 +564,7 @@ class _OperationsMap extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 const FigmaIcon('basemap', fit: BoxFit.cover),
-                ..._responderRoutes(visible, size),
                 ..._fireMarkers(visible, size),
-                ..._responderMarkers(visible, size),
                 Positioned(
                   top: 14,
                   right: 14,
@@ -593,29 +588,6 @@ class _OperationsMap extends StatelessWidget {
     ),
   );
 
-  List<Widget> _responderRoutes(
-    List<MunicipalityIncidentRecord> visible,
-    Size size,
-  ) => [
-    for (final (incidentIndex, incident) in visible.indexed)
-      for (final response in incident.responders)
-        CustomPaint(
-          key: ValueKey(
-            'municipality-responder-route-${incident.id}-${response.volunteerId}',
-          ),
-          painter: MunicipalityResponderRoutePainter(
-            start: _responderStart(incident, response, size),
-            end: _firePosition(incidentIndex, size),
-            controlBias: _responderLayout
-                .placementFor(
-                  incidentId: incident.id,
-                  volunteerId: response.volunteerId,
-                )
-                .normalizedControlBias,
-          ),
-        ),
-  ];
-
   List<Widget> _fireMarkers(
     List<MunicipalityIncidentRecord> visible,
     Size size,
@@ -637,43 +609,6 @@ class _OperationsMap extends StatelessWidget {
       ),
   ];
 
-  List<Widget> _responderMarkers(
-    List<MunicipalityIncidentRecord> visible,
-    Size size,
-  ) => [
-    for (final incident in visible)
-      for (final response in incident.responders)
-        Positioned(
-          key: ValueKey(
-            'municipality-responder-marker-${incident.id}-${response.volunteerId}',
-          ),
-          left: _responderStart(incident, response, size).dx - 16,
-          top: _responderStart(incident, response, size).dy - 16,
-          child: Tooltip(
-            message: response.displayName ?? response.volunteerId,
-            child: const CircleAvatar(
-              radius: 16,
-              backgroundColor: AppColors.primary,
-              child: Icon(Icons.person, color: Colors.white, size: 17),
-            ),
-          ),
-        ),
-  ];
-
-  Offset _responderStart(
-    MunicipalityIncidentRecord incident,
-    VolunteerResponse response,
-    Size size,
-  ) {
-    final normalized = _responderLayout
-        .placementFor(
-          incidentId: incident.id,
-          volunteerId: response.volunteerId,
-        )
-        .normalizedStart;
-    return Offset(normalized.dx * size.width, normalized.dy * size.height);
-  }
-
   Offset _firePosition(int index, Size size) {
     const positions = [
       Offset(0.72, 0.30),
@@ -683,51 +618,6 @@ class _OperationsMap extends StatelessWidget {
     final normalized = positions[index % positions.length];
     return Offset(normalized.dx * size.width, normalized.dy * size.height);
   }
-}
-
-class MunicipalityResponderRoutePainter extends CustomPainter {
-  const MunicipalityResponderRoutePainter({
-    required this.start,
-    required this.end,
-    required this.controlBias,
-  });
-
-  final Offset start;
-  final Offset end;
-  final Offset controlBias;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final midpoint = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
-    final control =
-        midpoint +
-        Offset(controlBias.dx * size.width, controlBias.dy * size.height);
-    final path = Path()
-      ..moveTo(start.dx, start.dy)
-      ..quadraticBezierTo(control.dx, control.dy, end.dx, end.dy);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.88)
-        ..strokeWidth = 7
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = AppColors.primary.withValues(alpha: 0.78)
-        ..strokeWidth = 4
-        ..strokeCap = StrokeCap.round
-        ..style = PaintingStyle.stroke,
-    );
-  }
-
-  @override
-  bool shouldRepaint(MunicipalityResponderRoutePainter oldDelegate) =>
-      start != oldDelegate.start ||
-      end != oldDelegate.end ||
-      controlBias != oldDelegate.controlBias;
 }
 
 class _ActiveSummary extends StatelessWidget {

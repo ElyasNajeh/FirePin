@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'dart:typed_data';
 
 import '../storage/token_storage.dart';
 
@@ -99,6 +100,7 @@ class ApiClient {
     Object? data,
     Map<String, dynamic>? queryParameters,
     bool requiresAuth = false,
+    ResponseType? responseType,
   }) async {
     if (!requiresAuth) {
       return _send<T>(
@@ -106,6 +108,7 @@ class ApiClient {
         method: method,
         data: data,
         queryParameters: queryParameters,
+        responseType: responseType,
       );
     }
 
@@ -126,6 +129,7 @@ class ApiClient {
         data: data,
         queryParameters: queryParameters,
         accessToken: token,
+        responseType: responseType,
       );
     } on DioException catch (error) {
       if (error.response?.statusCode != 401) {
@@ -148,8 +152,19 @@ class ApiClient {
         data: data,
         queryParameters: queryParameters,
         accessToken: token,
+        responseType: responseType,
       );
     }
+  }
+
+  Future<Uint8List> getBytes(String path, {bool requiresAuth = false}) async {
+    final response = await request<List<int>>(
+      path,
+      method: 'GET',
+      requiresAuth: requiresAuth,
+      responseType: ResponseType.bytes,
+    );
+    return Uint8List.fromList(response.data ?? const []);
   }
 
   Future<Response<T>> _send<T>(
@@ -158,6 +173,7 @@ class ApiClient {
     Object? data,
     Map<String, dynamic>? queryParameters,
     String? accessToken,
+    ResponseType? responseType,
   }) {
     return _dio.request<T>(
       path,
@@ -168,6 +184,7 @@ class ApiClient {
         headers: {
           if (accessToken != null) 'Authorization': 'Bearer $accessToken',
         },
+        responseType: responseType,
       ),
     );
   }

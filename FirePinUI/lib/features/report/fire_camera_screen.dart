@@ -72,7 +72,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
     }
   }
 
-  Future<void> _submit({required bool withPhoto}) async {
+  Future<void> _submit({required bool withPhoto, String? pin}) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -99,6 +99,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       widget.session.location = fix;
       await widget.services.reports.submit(
         photo: withPhoto ? _image : null,
+        pin: pin,
         location: fix,
       );
       if (!mounted) return;
@@ -123,15 +124,19 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
 
   Future<void> _confirmAndSubmitWithoutPhoto() async {
     if (_busy) return;
+    String? pin;
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (context) => _ReportPinDialog(
-        verifyPin: widget.services.authController.verifyCurrentUserPin,
+        verifyPin: (value) async {
+          pin = value;
+          return true;
+        },
       ),
     );
-    if (confirmed == true && mounted) {
-      await _submit(withPhoto: false);
+    if (confirmed == true && pin != null && mounted) {
+      await _submit(withPhoto: false, pin: pin);
     }
   }
 
