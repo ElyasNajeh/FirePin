@@ -7,18 +7,27 @@ The system receives fire detection events from connected sensors, identifies the
 ## 👥 Team
 
 - **Elyas Ihmud** — Backend Developer
+
 - **Khaled Hamayel** — Backend Developer
+
 - **Ramzi Abu Falah** — Frontend Developer
+
 - **Hareth Shoman** — Frontend Developer
+
 - **Adel Khair** — QA
 
 ## ✨ Features
 
 - Receive fire detection events from connected sensors.
+
 - Identify the registered location of the detected fire.
+
 - Send real-time fire alerts to users.
+
 - Display fire location and related information.
+
 - Store and track fire events.
+
 - Support Android and iOS through a single mobile application.
 
 ## 🛠 Technologies & Tools
@@ -26,26 +35,35 @@ The system receives fire detection events from connected sensors, identifies the
 ### Mobile
 
 - **Flutter** — Cross-platform mobile development for Android and iOS.
+
 - **Dart** — Programming language used to build the Flutter application.
 
 ### Backend
 
 - **FastAPI** — Lightweight and high-performance REST API framework.
+
 - **Python** — Backend programming language.
+
 - **SQLAlchemy** — ORM for database operations.
+
 - **AsyncPG** — Asynchronous PostgreSQL driver.
+
 - **Alembic** — Database schema migrations.
+
 - **Pydantic** — Request, response, and data validation.
 
 ### Database
 
 - **PostgreSQL** — Stores sensors, locations, fire events, and application data.
+
 - **Adminer** — Simple web interface for database management.
 
 ### Development & Deployment
 
 - **Docker** — Provides an isolated and consistent backend environment.
+
 - **Docker Compose** — Runs the API, PostgreSQL, and Adminer together.
+
 - **Git & GitHub** — Version control and team collaboration.
 
 ## 🔌 Ports
@@ -65,8 +83,11 @@ The system receives fire detection events from connected sensors, identifies the
 Make sure the following are installed:
 
 - Git
+
 - Docker & Docker Compose
+
 - Flutter SDK
+
 - Android Studio or another supported Android/iOS development environment
 
 ### 1. Clone the Repository
@@ -93,6 +114,14 @@ Copy-Item .env.example .env
 ```
 
 Then update the values inside `.env` if needed.
+
+Before running the project, make sure to get the required private configuration from the team:
+
+- Set the provided `SECRET_KEY` in `.env`.
+- Set the provided `FIREBASE_CREDENTIALS_PATH` in `.env`.
+- Get the `FirePinAPI/secrets` folder containing the Firebase credentials file and place it in the same path in the project.
+
+These values and files are private and are not included in the repository.
 
 ### 3. Start the Backend
 
