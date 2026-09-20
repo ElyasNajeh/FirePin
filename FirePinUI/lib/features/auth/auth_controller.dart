@@ -25,6 +25,7 @@ class AuthController extends ChangeNotifier {
   AuthStatus _status = AuthStatus.restoring;
   UserAccount? _user;
   MunicipalityAccount? _municipality;
+  UserLoginResult? _preparedRegistration;
 
   AuthStatus get status => _status;
   UserAccount? get user => _user;
@@ -77,6 +78,10 @@ class AuthController extends ChangeNotifier {
   }
 
   Future<void> completeRegistration(OnboardingSession session) async {
+    if (_preparedRegistration != null) {
+      await activatePreparedRegistration();
+      return;
+    }
     await _prepareForLogin();
     try {
       final result = await _users.registerUser(session);
@@ -86,6 +91,44 @@ class AuthController extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  Future<void> prepareRegistration(OnboardingSession session) async {
+    if (_preparedRegistration != null) return;
+    await _prepareForLogin();
+    try {
+      final result = await _users.registerUser(session);
+      _preparedRegistration = result;
+      await _sessions.save(const StoredSession(principal: AuthPrincipal.user));
+    } on Object {
+      await _clearPersistedAuthentication();
+      _clearMemory();
+      _status = AuthStatus.signedOut;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> activatePreparedRegistration() async {
+    if (_preparedRegistration == null) {
+      throw const AuthFailure('No prepared user registration');
+    }
+    try {
+      final account = await _users.restoreUser();
+      await _setUser(UserLoginResult(account: account));
+    } on Object {
+      await _clearPersistedAuthentication();
+      _clearMemory();
+      _status = AuthStatus.signedOut;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> refreshUser() async {
+    if (_status != AuthStatus.user) return;
+    _user = await _users.restoreUser();
+    notifyListeners();
   }
 
   Future<bool> verifyCurrentUserPin(String pin) async {
@@ -183,5 +226,6 @@ class AuthController extends ChangeNotifier {
   void _clearMemory() {
     _user = null;
     _municipality = null;
+    _preparedRegistration = null;
   }
 }

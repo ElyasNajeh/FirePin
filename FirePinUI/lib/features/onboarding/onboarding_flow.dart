@@ -4,7 +4,6 @@ import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
 import '../auth/login_screens.dart';
 import '../home/home_screen.dart';
-import '../municipality/municipality_repository.dart';
 import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
@@ -48,6 +47,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   final _session = OnboardingSession();
   String _current = OnboardingStep.welcome.name;
   late final _observer = _FlowObserver((name) => _current = name);
+  bool _preparingRegistration = false;
 
   void _go(OnboardingStep step, {bool replace = false, bool clear = false}) {
     if (!mounted || _current == step.name) return;
@@ -138,7 +138,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
           case AccountDestination.home:
             _completeRegistration();
           case AccountDestination.volunteerWarning:
-            _go(OnboardingStep.municipalitySelection);
+            _prepareVolunteerRegistration();
           case AccountDestination.pendingApproval:
             _go(OnboardingStep.pending, clear: true);
         }
@@ -158,33 +158,11 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.volunteerWarning => VolunteerWarningScreen(
       service: widget.services.volunteer,
+      municipalityId: _session.municipalityId!,
       onBack: _back,
-      onSubmitted: (status) {
+      onSubmitted: (status) async {
         _session.applicationStatus = status;
-
-        switch (_session.destination) {
-          case AccountDestination.home:
-            _completeRegistration();
-          case AccountDestination.pendingApproval:
-            final identity = _session.identity;
-            if (identity != null) {
-              widget.services.operations.submitApplication(
-                VolunteerApplicationRecord(
-                  id: 'local-application-${identity.identityNumber}',
-                  userId: 'local-${identity.identityNumber}',
-                  fullName: identity.fullName,
-                  nationalId: identity.identityNumber,
-                  phone: _session.phone,
-                  birthDate: identity.birthDate,
-                  requestedAt: DateTime.now(),
-                  status: ApplicationStatus.pending,
-                ),
-              );
-            }
-            _completeRegistration();
-          case AccountDestination.volunteerWarning:
-            _go(OnboardingStep.volunteerWarning);
-        }
+        await widget.services.authController.activatePreparedRegistration();
       },
     ),
     OnboardingStep.pending => const VolunteerPendingScreen(),
@@ -223,6 +201,21 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       if (mounted) {
         showFeedback(context, 'تعذّر حفظ الجلسة. حاول مجددًا.');
       }
+    }
+  }
+
+  Future<void> _prepareVolunteerRegistration() async {
+    if (_preparingRegistration) return;
+    _preparingRegistration = true;
+    try {
+      await widget.services.authController.prepareRegistration(_session);
+      if (mounted) _go(OnboardingStep.municipalitySelection);
+    } on Object {
+      if (mounted) {
+        showFeedback(context, 'تعذّر إنشاء الحساب. حاول مجددًا.');
+      }
+    } finally {
+      _preparingRegistration = false;
     }
   }
 

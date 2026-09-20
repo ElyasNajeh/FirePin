@@ -39,7 +39,6 @@ class AppServices {
   }) {
     this.identity = identity ?? const MockIdentityVerificationService();
     this.otp = otp ?? MockOtpService();
-    this.volunteer = volunteer ?? const MockVolunteerApplicationService();
     this.reports = reports ?? const MockFireReportService();
     this.permissions = permissions ?? NativeDevicePermissions();
     this.location = location ?? NativeLocationService();
@@ -50,12 +49,11 @@ class AppServices {
           sharedClient: sharedIncidents ?? DioSharedMockIncidentClient(),
           pollInterval: incidentPollInterval,
         );
-    this.operations =
-        operations ?? LocalMunicipalityRepository(incidents: this.incidents);
     final storage = tokenStorage ?? TokenStorage();
     final baseUrl = resolveApiBaseUrl(override: apiBaseUrl);
     final userApi =
         userApiClient ?? ApiClient(baseUrl: baseUrl, tokenStorage: storage);
+    this.volunteer = volunteer ?? ApiVolunteerApplicationService(userApi);
     this.municipalityDirectory =
         municipalityDirectory ?? ApiMunicipalityDirectoryRepository(userApi);
     final municipalityApi =
@@ -64,6 +62,12 @@ class AppServices {
           baseUrl: baseUrl,
           tokenStorage: storage,
           refreshPath: '/municipalities/auth/refresh',
+        );
+    this.operations =
+        operations ??
+        MunicipalityOperationsRepository(
+          incidents: this.incidents,
+          api: municipalityApi,
         );
     final userAuth = auth ?? ApiAuthRepository(api: userApi, storage: storage);
     final authorityAuth =

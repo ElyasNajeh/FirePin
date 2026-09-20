@@ -12,12 +12,14 @@ class AccountScreen extends StatelessWidget {
     required this.incidentController,
     required this.onChangePin,
     required this.onLogout,
+    this.onApplyVolunteer,
   });
 
   final OnboardingSession session;
   final IncidentController incidentController;
   final VoidCallback onChangePin;
   final VoidCallback onLogout;
+  final VoidCallback? onApplyVolunteer;
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +35,17 @@ class AccountScreen extends StatelessWidget {
       children: [
         const PageTitle('الحساب'),
         const SizedBox(height: 8),
+        if ((session.applicationStatus == ApplicationStatus.none ||
+                session.applicationStatus == ApplicationStatus.rejected) &&
+            onApplyVolunteer != null) ...[
+          AppButton(
+            session.applicationStatus == ApplicationStatus.rejected
+                ? 'إعادة التقديم كمتطوع'
+                : 'التقديم كمتطوع',
+            onPressed: onApplyVolunteer,
+          ),
+          const SizedBox(height: 8),
+        ],
         SurfaceCard(
           child: Row(
             children: [

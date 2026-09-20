@@ -3,11 +3,12 @@ import 'package:firepin_ui/features/home/home_screen.dart';
 import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/incidents/shared_mock_incident_client.dart';
 import 'package:firepin_ui/features/municipality/municipality_dashboard.dart';
-import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'test_fakes.dart';
 
 void main() {
   testWidgets(
@@ -82,7 +83,9 @@ void main() {
       expect(_route('user-volunteer-2'), findsOneWidget);
       expect(_route('user-volunteer'), findsNothing);
 
-      final operations = LocalMunicipalityRepository(incidents: municipality);
+      final operations = FakeMunicipalityOperationsRepository(
+        incidentController: municipality,
+      );
       addTearDown(operations.dispose);
       await tester.pumpWidget(
         MaterialApp(

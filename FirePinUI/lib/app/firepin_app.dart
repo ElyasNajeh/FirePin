@@ -9,6 +9,7 @@ import '../features/auth/auth_models.dart';
 import '../features/home/home_screen.dart';
 import '../features/municipality/municipality_dashboard.dart';
 import '../features/onboarding/onboarding_models.dart';
+import '../features/onboarding/volunteer_application_flow.dart';
 import '../features/report/fire_camera_screen.dart';
 import '../theme/app_theme.dart';
 import 'app_services.dart';
@@ -24,6 +25,7 @@ class FirePinApp extends StatefulWidget {
 class _FirePinAppState extends State<FirePinApp> {
   late final _services = widget.services ?? AppServices();
   bool _reporting = false;
+  bool _applyingVolunteer = false;
 
   @override
   void initState() {
@@ -98,6 +100,17 @@ class _FirePinAppState extends State<FirePinApp> {
       ..location = const LocationFix(31.78, 35.24, 10)
       ..role = account.role
       ..applicationStatus = account.applicationStatus;
+    if (_applyingVolunteer) {
+      return VolunteerApplicationFlow(
+        directory: _services.municipalityDirectory,
+        applications: _services.volunteer,
+        onCancel: () => setState(() => _applyingVolunteer = false),
+        onSubmitted: (_) async {
+          await _services.authController.refreshUser();
+          if (mounted) setState(() => _applyingVolunteer = false);
+        },
+      );
+    }
     if (_reporting) {
       return FireCameraScreen(
         services: _services,
@@ -127,8 +140,10 @@ class _FirePinAppState extends State<FirePinApp> {
       onReport: () => setState(() => _reporting = true),
       onLogout: () async {
         _reporting = false;
+        _applyingVolunteer = false;
         await _services.authController.logout();
       },
+      onApplyVolunteer: () => setState(() => _applyingVolunteer = true),
     );
   }
 }

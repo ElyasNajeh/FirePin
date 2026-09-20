@@ -165,7 +165,7 @@ class ApiAuthRepository implements AuthRepository {
         requiresAuth: true,
       );
       hasVolunteerMembership = true;
-      applicationStatus = ApplicationStatus.approved;
+      applicationStatus = ApplicationStatus.accepted;
     } on DioException catch (error) {
       if (error.response?.statusCode != 404) rethrow;
       final applications = await _api.get<Map<String, dynamic>>(
@@ -298,10 +298,9 @@ class ApiMunicipalityAuthRepository implements MunicipalityAuthRepository {
 }
 
 class DemoAuthRepository implements AuthRepository {
-  DemoAuthRepository(this._operations);
-
-  final MunicipalityRepository _operations;
+  DemoAuthRepository([MunicipalityRepository? _]);
   String? _activeNationalId;
+  OnboardingSession? _activeRegistrationSession;
 
   static const citizenNationalId = '123456789';
   static const citizenPin = '1234';
@@ -349,7 +348,7 @@ class DemoAuthRepository implements AuthRepository {
       phone: '059 222 3344',
       birthDate: '22 / 03 / 1996',
       address: 'القدس — وادي الجوز',
-      applicationStatus: ApplicationStatus.approved,
+      applicationStatus: ApplicationStatus.accepted,
       hasVolunteerMembership: true,
     ),
     secondVolunteerNationalId: const UserAccount(
@@ -359,7 +358,7 @@ class DemoAuthRepository implements AuthRepository {
       phone: '059 333 4466',
       birthDate: '06 / 07 / 1995',
       address: 'القدس — شعفاط',
-      applicationStatus: ApplicationStatus.approved,
+      applicationStatus: ApplicationStatus.accepted,
       hasVolunteerMembership: true,
     ),
     pendingNationalId: const UserAccount(
@@ -387,14 +386,20 @@ class DemoAuthRepository implements AuthRepository {
       );
     }
     _activeNationalId = normalizedId;
-    return UserLoginResult(account: _resolve(_accounts[normalizedId]!));
+    return UserLoginResult(account: _accounts[normalizedId]!);
   }
 
   @override
   Future<UserAccount> restoreUser() async {
     final account = _accounts[_activeNationalId ?? citizenNationalId];
     if (account == null) throw const AuthFailure('انتهت الجلسة.');
-    return _resolve(account);
+    final registration = _activeRegistrationSession;
+    if (registration == null) return account;
+    return account.copyWith(
+      applicationStatus: registration.applicationStatus,
+      hasVolunteerMembership:
+          registration.applicationStatus == ApplicationStatus.accepted,
+    );
   }
 
   @override
@@ -412,11 +417,12 @@ class DemoAuthRepository implements AuthRepository {
       address: identity.address,
       applicationStatus: session.applicationStatus,
       hasVolunteerMembership:
-          session.applicationStatus == ApplicationStatus.approved,
+          session.applicationStatus == ApplicationStatus.accepted,
     );
     _accounts[account.nationalId] = account;
     _pins[account.nationalId] = session.pinForRegistration!;
     _activeNationalId = account.nationalId;
+    _activeRegistrationSession = session;
     return UserLoginResult(account: account);
   }
 
@@ -433,18 +439,17 @@ class DemoAuthRepository implements AuthRepository {
         _pins[account.nationalId] == normalizeDigits(pin).trim();
   }
 
-  UserAccount _resolve(UserAccount account) => account.copyWith(
-    applicationStatus: _operations.applicationStatusFor(account.nationalId),
-    hasVolunteerMembership: _operations.hasVolunteerMembership(
-      account.nationalId,
-    ),
-  );
+  @override
+  Future<void> logoutUser() async {
+    _activeNationalId = null;
+    _activeRegistrationSession = null;
+  }
 
   @override
-  Future<void> logoutUser() async => _activeNationalId = null;
-
-  @override
-  Future<void> clearLocalSession() async => _activeNationalId = null;
+  Future<void> clearLocalSession() async {
+    _activeNationalId = null;
+    _activeRegistrationSession = null;
+  }
 }
 
 class DemoMunicipalityAuthRepository implements MunicipalityAuthRepository {
@@ -501,7 +506,7 @@ Map<String, dynamic> _map(Object? value, String name) {
 
 ApplicationStatus _applicationStatus(Object? value) => switch (value) {
   'pending' => ApplicationStatus.pending,
-  'accepted' => ApplicationStatus.approved,
+  'accepted' => ApplicationStatus.accepted,
   'rejected' => ApplicationStatus.rejected,
   _ => ApplicationStatus.none,
 };

@@ -160,10 +160,12 @@ class VolunteerWarningScreen extends StatefulWidget {
     required this.service,
     required this.onSubmitted,
     required this.onBack,
+    required this.municipalityId,
   });
   final VolunteerApplicationService service;
-  final ValueChanged<ApplicationStatus> onSubmitted;
+  final Future<void> Function(ApplicationStatus) onSubmitted;
   final VoidCallback onBack;
+  final int municipalityId;
   @override
   State<VolunteerWarningScreen> createState() => _VolunteerWarningScreenState();
 }
@@ -178,8 +180,10 @@ class _VolunteerWarningScreenState extends State<VolunteerWarningScreen> {
       _error = null;
     });
     try {
-      final status = await widget.service.submit();
-      if (mounted) widget.onSubmitted(status);
+      final status = await widget.service.submit(
+        municipalityId: widget.municipalityId,
+      );
+      if (mounted) await widget.onSubmitted(status);
     } catch (_) {
       if (mounted) setState(() => _error = 'تعذّر إرسال الطلب. حاول مرة أخرى.');
     } finally {
@@ -226,6 +230,7 @@ class _VolunteerWarningScreenState extends State<VolunteerWarningScreen> {
         const SizedBox(height: 82),
         AppButton(
           _busy ? 'جارٍ إرسال الطلب' : 'تأكيد وإرسال طلب التطوع',
+          key: const ValueKey('volunteer-application-submit'),
           busy: _busy,
           onPressed: _submit,
         ),

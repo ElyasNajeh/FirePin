@@ -8,6 +8,8 @@ import 'package:firepin_ui/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'test_fakes.dart';
+
 void main() {
   test('mock responder map placement is stable and identity-specific', () {
     const layout = DeterministicMockResponderMapLayout();
@@ -59,7 +61,9 @@ void main() {
           displayName: 'المتطوع ج',
           phone: '0593333333',
         );
-      final repository = LocalMunicipalityRepository(incidents: incidents);
+      final repository = FakeMunicipalityOperationsRepository(
+        incidentController: incidents,
+      );
       addTearDown(() {
         repository.dispose();
         incidents.dispose();

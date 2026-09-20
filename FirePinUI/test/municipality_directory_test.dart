@@ -76,7 +76,7 @@ void main() {
     );
 
     services.authController.dispose();
-    (services.operations as LocalMunicipalityRepository).dispose();
+    (services.operations as MunicipalityOperationsRepository).dispose();
     services.incidents.dispose();
   });
 

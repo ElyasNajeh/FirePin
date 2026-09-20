@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+
+import '../../core/network/api_client.dart';
 import 'onboarding_models.dart';
 
 abstract interface class IdentityVerificationService {
@@ -58,16 +60,30 @@ class MockOtpService implements OtpService {
 }
 
 abstract interface class VolunteerApplicationService {
-  Future<ApplicationStatus> submit();
+  Future<ApplicationStatus> submit({required int municipalityId});
 }
 
-/// Does not contact a council or create a server-side application.
-class MockVolunteerApplicationService implements VolunteerApplicationService {
-  const MockVolunteerApplicationService();
+class ApiVolunteerApplicationService implements VolunteerApplicationService {
+  const ApiVolunteerApplicationService(this._api);
+
+  final ApiClient _api;
+
   @override
-  Future<ApplicationStatus> submit() async {
-    await Future<void>.delayed(const Duration(milliseconds: 650));
-    return ApplicationStatus.pending;
+  Future<ApplicationStatus> submit({required int municipalityId}) async {
+    final response = await _api.post<Map<String, dynamic>>(
+      '/volunteer-applications',
+      data: {'municipality_id': municipalityId},
+      requiresAuth: true,
+    );
+    final status = response.data?['status'];
+    return switch (status) {
+      'pending' => ApplicationStatus.pending,
+      'accepted' => ApplicationStatus.accepted,
+      'rejected' => ApplicationStatus.rejected,
+      _ => throw const FormatException(
+        'Invalid volunteer application response',
+      ),
+    };
   }
 }
 

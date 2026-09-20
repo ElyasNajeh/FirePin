@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/ui/components.dart';
@@ -36,6 +38,20 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   MunicipalitySection _section = MunicipalitySection.overview;
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_reloadVolunteerData());
+  }
+
+  Future<void> _reloadVolunteerData() async {
+    try {
+      await widget.repository.loadVolunteerData();
+    } on Object {
+      // The repository exposes the error so the dashboard can offer retry.
+    }
+  }
+
+  @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.repository,
     builder: (context, _) => LayoutBuilder(
@@ -47,8 +63,15 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
               ? null
               : AppBar(
                   title: Text(_label(_section)),
-                  actions: const [
-                    Padding(
+                  actions: [
+                    IconButton(
+                      tooltip: 'تحديث',
+                      onPressed: widget.repository.isVolunteerDataLoading
+                          ? null
+                          : _reloadVolunteerData,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                    const Padding(
                       padding: EdgeInsetsDirectional.only(end: 16),
                       child: BrandHeader(),
                     ),
@@ -130,6 +153,13 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
         Row(
           children: [
             Expanded(child: PageTitle(_label(_section))),
+            IconButton(
+              tooltip: 'تحديث',
+              onPressed: widget.repository.isVolunteerDataLoading
+                  ? null
+                  : _reloadVolunteerData,
+              icon: const Icon(Icons.refresh),
+            ),
             _LiveStatus(connected: !widget.repository.hasSyncError),
           ],
         ),
@@ -138,8 +168,8 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
       switch (_section) {
         MunicipalitySection.overview => _overview(wide),
         MunicipalitySection.activeIncidents => _incidents(resolved: false),
-        MunicipalitySection.applications => _applications(),
-        MunicipalitySection.volunteers => _volunteers(),
+        MunicipalitySection.applications => _volunteerData(_applications()),
+        MunicipalitySection.volunteers => _volunteerData(_volunteers()),
         MunicipalitySection.history => _incidents(resolved: true),
         MunicipalitySection.account => _account(),
       },
@@ -224,6 +254,30 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
     );
   }
 
+  Widget _volunteerData(Widget child) {
+    if (widget.repository.isVolunteerDataLoading &&
+        widget.repository.applications.isEmpty &&
+        widget.repository.volunteers.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (widget.repository.volunteerDataError != null &&
+        widget.repository.applications.isEmpty &&
+        widget.repository.volunteers.isEmpty) {
+      return _VolunteerDataError(onRetry: _reloadVolunteerData);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (widget.repository.volunteerDataError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _VolunteerDataError(onRetry: _reloadVolunteerData),
+          ),
+        child,
+      ],
+    );
+  }
+
   Widget _incidents({required bool resolved}) {
     final items = widget.repository.incidents
         .where((item) => item.isResolved == resolved)
@@ -261,7 +315,7 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
           child: TabBarView(
             children: [
               _applicationList(ApplicationStatus.pending),
-              _applicationList(ApplicationStatus.approved),
+              _applicationList(ApplicationStatus.accepted),
               _applicationList(ApplicationStatus.rejected),
             ],
           ),
@@ -306,8 +360,7 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
                     Expanded(
                       child: AppButton(
                         'قبول',
-                        onPressed: () =>
-                            widget.repository.acceptApplication(item.id),
+                        onPressed: () => _manageApplication(item.id, true),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -315,8 +368,7 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
                       child: AppButton(
                         'رفض',
                         secondary: true,
-                        onPressed: () =>
-                            widget.repository.rejectApplication(item.id),
+                        onPressed: () => _manageApplication(item.id, false),
                       ),
                     ),
                   ],
@@ -340,6 +392,9 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
     final activePhones = activeResponders
         .map((response) => response.phone)
         .toSet();
+    if (widget.repository.volunteers.isEmpty) {
+      return const _EmptyState('لا يوجد متطوعون معتمدون بعد.');
+    }
     return Column(
       children: [
         for (final volunteer in widget.repository.volunteers) ...[
@@ -361,19 +416,19 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
                         style: AppType.caption,
                       ),
                       Text(
-                        'اعتماد: ${_date(volunteer.approvedAt)}',
+                        'اعتماد: ${_date(volunteer.joinedAt)}',
                         style: AppType.caption,
                       ),
                     ],
                   ),
                 ),
                 _StatusBadge(
-                  activeIds.contains(volunteer.userId) ||
+                  activeIds.contains(volunteer.userId.toString()) ||
                           activePhones.contains(volunteer.phone)
                       ? 'في استجابة'
                       : 'متاح',
                   warning:
-                      activeIds.contains(volunteer.userId) ||
+                      activeIds.contains(volunteer.userId.toString()) ||
                       activePhones.contains(volunteer.phone),
                 ),
               ],
@@ -383,6 +438,20 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
         ],
       ],
     );
+  }
+
+  Future<void> _manageApplication(int id, bool accept) async {
+    try {
+      if (accept) {
+        await widget.repository.acceptApplication(id);
+      } else {
+        await widget.repository.rejectApplication(id);
+      }
+    } on Object {
+      if (mounted) {
+        showFeedback(context, 'تعذّر تحديث طلب التطوع. حاول مجددًا.');
+      }
+    }
   }
 
   Widget _account() => ConstrainedBox(
@@ -951,6 +1020,23 @@ class _EmptyState extends StatelessWidget {
     child: Padding(
       padding: const EdgeInsets.all(36),
       child: Text(label, style: AppType.body),
+    ),
+  );
+}
+
+class _VolunteerDataError extends StatelessWidget {
+  const _VolunteerDataError({required this.onRetry});
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) => SurfaceCard(
+    warning: true,
+    child: Column(
+      children: [
+        Text('تعذّر تحميل بيانات المتطوعين.', style: AppType.body),
+        const SizedBox(height: 10),
+        AppButton('إعادة المحاولة', secondary: true, onPressed: onRetry),
+      ],
     ),
   );
 }

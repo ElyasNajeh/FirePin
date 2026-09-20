@@ -11,12 +11,13 @@ import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:firepin_ui/features/home/home_screen.dart';
 import 'package:firepin_ui/features/incidents/incident_controller.dart';
-import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/notifications/notification_api.dart';
 import 'package:firepin_ui/features/notifications/notification_service.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'test_fakes.dart';
 
 void main() {
   test('API base URL supports Android and an explicit production URL', () {
@@ -535,7 +536,9 @@ void main() {
     final sessions = MemorySessionRepository()
       ..value = const StoredSession(principal: AuthPrincipal.user);
     final incidents = IncidentController();
-    final operations = LocalMunicipalityRepository(incidents: incidents);
+    final operations = FakeMunicipalityOperationsRepository(
+      incidentController: incidents,
+    );
     final services = AppServices(
       auth: fixture.userRepository,
       municipalityAuth: fixture.municipalityRepository,

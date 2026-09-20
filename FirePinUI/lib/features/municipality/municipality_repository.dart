@@ -103,8 +103,8 @@ class VolunteerApplicationRecord {
     required this.status,
   });
 
-  final String id;
-  final String userId;
+  final int id;
+  final int userId;
   final String fullName;
   final String nationalId;
   final String phone;
@@ -127,20 +127,22 @@ class VolunteerApplicationRecord {
 
 class VolunteerRecord {
   const VolunteerRecord({
+    required this.id,
     required this.userId,
     required this.fullName,
     required this.nationalId,
     required this.phone,
     required this.birthDate,
-    required this.approvedAt,
+    required this.joinedAt,
   });
 
-  final String userId;
+  final int id;
+  final int userId;
   final String fullName;
   final String nationalId;
   final String phone;
   final String birthDate;
-  final DateTime approvedAt;
+  final DateTime joinedAt;
 }
 
 class MunicipalityIncidentRecord {
@@ -183,51 +185,29 @@ abstract interface class MunicipalityRepository implements Listenable {
   List<VolunteerRecord> get volunteers;
   List<MunicipalityIncidentRecord> get incidents;
   bool get hasSyncError;
-  void acceptApplication(String id);
-  void rejectApplication(String id);
-  ApplicationStatus applicationStatusFor(String nationalId);
-  bool hasVolunteerMembership(String nationalId);
-  void submitApplication(VolunteerApplicationRecord application);
+  bool get isVolunteerDataLoading;
+  Object? get volunteerDataError;
+  Future<void> loadVolunteerData();
+  Future<void> acceptApplication(int id);
+  Future<void> rejectApplication(int id);
 }
 
-class LocalMunicipalityRepository extends ChangeNotifier
+class MunicipalityOperationsRepository extends ChangeNotifier
     implements MunicipalityRepository {
-  LocalMunicipalityRepository({required IncidentController incidents})
-    : _incidentController = incidents {
+  MunicipalityOperationsRepository({
+    required IncidentController incidents,
+    required ApiClient api,
+  }) : _incidentController = incidents,
+       _api = api {
     _incidentController.addListener(_onIncidentChanged);
   }
 
   final IncidentController _incidentController;
-  final List<VolunteerApplicationRecord> _applications = [
-    VolunteerApplicationRecord(
-      id: 'application-pending',
-      userId: 'user-pending',
-      fullName: 'سارة محمود خليل',
-      nationalId: '111222333',
-      phone: '059 765 4321',
-      birthDate: '09 / 08 / 1999',
-      requestedAt: DateTime(2026, 9, 18, 10, 30),
-      status: ApplicationStatus.pending,
-    ),
-  ];
-  final List<VolunteerRecord> _volunteers = [
-    VolunteerRecord(
-      userId: 'user-volunteer',
-      fullName: 'ليان أحمد صالح',
-      nationalId: '987654321',
-      phone: '059 222 3344',
-      birthDate: '22 / 03 / 1996',
-      approvedAt: DateTime(2026, 8, 12),
-    ),
-    VolunteerRecord(
-      userId: 'user-volunteer-2',
-      fullName: 'عمر يوسف النجار',
-      nationalId: '864209753',
-      phone: '059 333 4466',
-      birthDate: '06 / 07 / 1995',
-      approvedAt: DateTime(2026, 8, 20),
-    ),
-  ];
+  final ApiClient _api;
+  List<VolunteerApplicationRecord> _applications = const [];
+  List<VolunteerRecord> _volunteers = const [];
+  bool _isVolunteerDataLoading = false;
+  Object? _volunteerDataError;
 
   late final List<MunicipalityIncidentRecord> _seedIncidents = [
     MunicipalityIncidentRecord(
@@ -288,7 +268,14 @@ class LocalMunicipalityRepository extends ChangeNotifier
   List<VolunteerRecord> get volunteers => List.unmodifiable(_volunteers);
 
   @override
-  bool get hasSyncError => _incidentController.hasSyncError;
+  bool get hasSyncError =>
+      _incidentController.hasSyncError || _volunteerDataError != null;
+
+  @override
+  bool get isVolunteerDataLoading => _isVolunteerDataLoading;
+
+  @override
+  Object? get volunteerDataError => _volunteerDataError;
 
   @override
   List<MunicipalityIncidentRecord> get incidents {
@@ -317,63 +304,130 @@ class LocalMunicipalityRepository extends ChangeNotifier
   }
 
   @override
-  void acceptApplication(String id) {
-    final index = _applications.indexWhere((item) => item.id == id);
-    if (index < 0 || _applications[index].status != ApplicationStatus.pending) {
-      return;
-    }
-    final application = _applications[index];
-    _applications[index] = application.copyWith(
-      status: ApplicationStatus.approved,
+  Future<void> acceptApplication(int id) async {
+    await _api.post<Map<String, dynamic>>(
+      '/municipalities/auth/volunteer-applications/$id/accept',
+      requiresAuth: true,
     );
-    if (!_volunteers.any((item) => item.userId == application.userId)) {
-      _volunteers.add(
-        VolunteerRecord(
-          userId: application.userId,
-          fullName: application.fullName,
-          nationalId: application.nationalId,
-          phone: application.phone,
-          birthDate: application.birthDate,
-          approvedAt: DateTime.now(),
-        ),
+    await loadVolunteerData();
+  }
+
+  @override
+  Future<void> rejectApplication(int id) async {
+    await _api.post<Map<String, dynamic>>(
+      '/municipalities/auth/volunteer-applications/$id/reject',
+      requiresAuth: true,
+    );
+    await loadVolunteerData();
+  }
+
+  @override
+  Future<void> loadVolunteerData() async {
+    if (_isVolunteerDataLoading) return;
+    _isVolunteerDataLoading = true;
+    _volunteerDataError = null;
+    _applications = const [];
+    _volunteers = const [];
+    notifyListeners();
+    try {
+      final results = await Future.wait([
+        _loadApplications(),
+        _loadVolunteers(),
+      ]);
+      _applications = results[0] as List<VolunteerApplicationRecord>;
+      _volunteers = results[1] as List<VolunteerRecord>;
+    } on Object catch (error) {
+      _volunteerDataError = error;
+      rethrow;
+    } finally {
+      _isVolunteerDataLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<VolunteerApplicationRecord>> _loadApplications() async {
+    final items = await _loadAll('/municipalities/auth/volunteer-applications');
+    return List.unmodifiable(items.map(_applicationFromJson));
+  }
+
+  Future<List<VolunteerRecord>> _loadVolunteers() async {
+    final items = await _loadAll('/municipalities/auth/volunteers');
+    return List.unmodifiable(items.map(_volunteerFromJson));
+  }
+
+  Future<List<Map<String, dynamic>>> _loadAll(String path) async {
+    const limit = 100;
+    var page = 1;
+    var fetched = 0;
+    final result = <Map<String, dynamic>>[];
+    while (true) {
+      final response = await _api.get<Map<String, dynamic>>(
+        path,
+        queryParameters: {'page': page, 'limit': limit},
+        requiresAuth: true,
       );
+      final data = response.data;
+      final items = data?['items'];
+      final total = data?['total'];
+      if (items is! List || total is! int) {
+        throw const FormatException('Invalid municipality volunteer response');
+      }
+      for (final item in items) {
+        if (item is! Map<String, dynamic>) {
+          throw const FormatException('Invalid municipality volunteer item');
+        }
+        result.add(item);
+      }
+      fetched += items.length;
+      if (items.isEmpty || fetched >= total) return result;
+      page++;
     }
-    notifyListeners();
   }
 
-  @override
-  void rejectApplication(String id) {
-    final index = _applications.indexWhere((item) => item.id == id);
-    if (index < 0 || _applications[index].status != ApplicationStatus.pending) {
-      return;
+  VolunteerApplicationRecord _applicationFromJson(Map<String, dynamic> json) {
+    final user = json['user'];
+    if (user is! Map<String, dynamic>) {
+      throw const FormatException('Invalid volunteer applicant');
     }
-    _applications[index] = _applications[index].copyWith(
-      status: ApplicationStatus.rejected,
+    return VolunteerApplicationRecord(
+      id: _int(json['id']),
+      userId: _int(user['id']),
+      fullName: user['full_name'] as String,
+      nationalId: user['national_id'] as String,
+      phone: user['phone'] as String,
+      birthDate: _displayDate(user['birth_date'] as String),
+      requestedAt: DateTime.parse(json['created_at'] as String),
+      status: _applicationStatus(json['status']),
     );
-    notifyListeners();
   }
 
-  @override
-  ApplicationStatus applicationStatusFor(String nationalId) =>
-      _applications
-          .where((item) => item.nationalId == nationalId)
-          .map((item) => item.status)
-          .firstOrNull ??
-      (hasVolunteerMembership(nationalId)
-          ? ApplicationStatus.approved
-          : ApplicationStatus.none);
+  VolunteerRecord _volunteerFromJson(Map<String, dynamic> json) =>
+      VolunteerRecord(
+        id: _int(json['id']),
+        userId: _int(json['user_id']),
+        fullName: json['full_name'] as String,
+        nationalId: json['national_id'] as String,
+        phone: json['phone'] as String,
+        birthDate: _displayDate(json['birth_date'] as String),
+        joinedAt: DateTime.parse(json['created_at'] as String),
+      );
 
-  @override
-  bool hasVolunteerMembership(String nationalId) =>
-      _volunteers.any((item) => item.nationalId == nationalId);
+  int _int(Object? value) {
+    if (value is int) return value;
+    throw const FormatException('Invalid backend identifier');
+  }
 
-  @override
-  void submitApplication(VolunteerApplicationRecord application) {
-    _applications.removeWhere(
-      (item) => item.nationalId == application.nationalId,
-    );
-    _applications.add(application);
-    notifyListeners();
+  ApplicationStatus _applicationStatus(Object? value) => switch (value) {
+    'pending' => ApplicationStatus.pending,
+    'accepted' => ApplicationStatus.accepted,
+    'rejected' => ApplicationStatus.rejected,
+    _ => throw const FormatException('Invalid volunteer application status'),
+  };
+
+  String _displayDate(String value) {
+    final parts = value.split('-');
+    if (parts.length != 3) return value;
+    return '${parts[2]} / ${parts[1]} / ${parts[0]}';
   }
 
   void _onIncidentChanged() => notifyListeners();

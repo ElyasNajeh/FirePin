@@ -98,6 +98,16 @@ class TrackingOtpService implements OtpService {
   }
 }
 
+class FakeVolunteerApplicationService implements VolunteerApplicationService {
+  int? municipalityId;
+
+  @override
+  Future<ApplicationStatus> submit({required int municipalityId}) async {
+    this.municipalityId = municipalityId;
+    return ApplicationStatus.pending;
+  }
+}
+
 class FakeMunicipalityDirectoryRepository
     implements MunicipalityDirectoryRepository {
   FakeMunicipalityDirectoryRepository({
@@ -118,6 +128,163 @@ class FakeMunicipalityDirectoryRepository
       municipalities;
 }
 
+class FakeMunicipalityOperationsRepository extends ChangeNotifier
+    implements MunicipalityRepository {
+  FakeMunicipalityOperationsRepository({required this.incidentController}) {
+    incidentController.addListener(notifyListeners);
+  }
+
+  final IncidentController incidentController;
+  @override
+  final List<VolunteerApplicationRecord> applications = [
+    VolunteerApplicationRecord(
+      id: 1,
+      userId: 3,
+      fullName: 'سارة محمود خليل',
+      nationalId: DemoAuthRepository.pendingNationalId,
+      phone: '059 765 4321',
+      birthDate: '09 / 08 / 1999',
+      requestedAt: DateTime(2026, 9, 18, 10, 30),
+      status: ApplicationStatus.pending,
+    ),
+  ];
+  @override
+  final List<VolunteerRecord> volunteers = [
+    VolunteerRecord(
+      id: 1,
+      userId: 1,
+      fullName: 'ليان أحمد صالح',
+      nationalId: DemoAuthRepository.volunteerNationalId,
+      phone: '059 222 3344',
+      birthDate: '22 / 03 / 1996',
+      joinedAt: DateTime(2026, 8, 12),
+    ),
+    VolunteerRecord(
+      id: 2,
+      userId: 2,
+      fullName: 'عمر يوسف النجار',
+      nationalId: DemoAuthRepository.secondVolunteerNationalId,
+      phone: '059 333 4466',
+      birthDate: '06 / 07 / 1995',
+      joinedAt: DateTime(2026, 8, 20),
+    ),
+  ];
+
+  @override
+  bool get hasSyncError => incidentController.hasSyncError;
+  @override
+  bool get isVolunteerDataLoading => false;
+  @override
+  Object? get volunteerDataError => null;
+  @override
+  List<MunicipalityIncidentRecord> get incidents => [
+    for (final incident in incidentController.incidents)
+      MunicipalityIncidentRecord(
+        id: incident.id,
+        stage: incident.stage,
+        reportedAt: incident.reportedAt,
+        reporterName: incident.reporterName ?? 'Test user',
+        reporterPhone: incident.reporterPhone,
+        reporterNationalId:
+            incident.reporterNationalId ?? incident.reporterId ?? 'unknown',
+        locationLabel: 'Test location',
+        latitude: incident.fireLocation.latitude,
+        longitude: incident.fireLocation.longitude,
+        municipalityName: 'Test municipality',
+        events: List.unmodifiable(incident.events),
+        responders: List.unmodifiable(incident.responders),
+        photo: incident.photo,
+      ),
+    MunicipalityIncidentRecord(
+      id: 'FP-1042',
+      stage: IncidentStage.waitingForResponder,
+      reportedAt: DateTime(2026, 9, 18),
+      reporterName: 'Reporter',
+      reporterPhone: '0590000000',
+      reporterNationalId: '100000000',
+      locationLabel: 'Location',
+      latitude: 31.78,
+      longitude: 35.24,
+      municipalityName: 'Municipality',
+      events: const [],
+    ),
+    MunicipalityIncidentRecord(
+      id: 'FP-1037',
+      stage: IncidentStage.resolved,
+      reportedAt: DateTime(2026, 9, 17),
+      reporterName: 'Reporter',
+      reporterPhone: '0590000000',
+      reporterNationalId: '100000000',
+      locationLabel: 'Location',
+      latitude: 31.78,
+      longitude: 35.24,
+      municipalityName: 'Municipality',
+      events: const [],
+    ),
+  ];
+
+  @override
+  Future<void> loadVolunteerData() async {}
+
+  @override
+  Future<void> acceptApplication(int id) async {
+    final index = applications.indexWhere((item) => item.id == id);
+    if (index < 0 || applications[index].status != ApplicationStatus.pending) {
+      return;
+    }
+    final application = applications[index];
+    applications[index] = application.copyWith(
+      status: ApplicationStatus.accepted,
+    );
+    volunteers.add(
+      VolunteerRecord(
+        id: volunteers.length + 1,
+        userId: application.userId,
+        fullName: application.fullName,
+        nationalId: application.nationalId,
+        phone: application.phone,
+        birthDate: application.birthDate,
+        joinedAt: DateTime.now(),
+      ),
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> rejectApplication(int id) async {
+    final index = applications.indexWhere((item) => item.id == id);
+    if (index >= 0 && applications[index].status == ApplicationStatus.pending) {
+      applications[index] = applications[index].copyWith(
+        status: ApplicationStatus.rejected,
+      );
+      notifyListeners();
+    }
+  }
+
+  void submitApplication(VolunteerApplicationRecord application) {
+    applications.add(application);
+    notifyListeners();
+  }
+
+  ApplicationStatus applicationStatusFor(String nationalId) =>
+      applications
+          .where((item) => item.nationalId == nationalId)
+          .map((item) => item.status)
+          .firstOrNull ??
+      (hasVolunteerMembership(nationalId)
+          ? ApplicationStatus.accepted
+          : ApplicationStatus.none);
+
+  bool hasVolunteerMembership(String nationalId) =>
+      volunteers.any((item) => item.nationalId == nationalId);
+
+  @override
+  void dispose() {
+    incidentController.removeListener(notifyListeners);
+    super.dispose();
+  }
+}
+
 AppServices fakeServices({
   FakePermissions? permissions,
   FakeLocation? location,
@@ -127,12 +294,15 @@ AppServices fakeServices({
   SessionRepository? sessions,
 }) {
   final incidents = IncidentController();
-  final operations = LocalMunicipalityRepository(incidents: incidents);
+  final operations = FakeMunicipalityOperationsRepository(
+    incidentController: incidents,
+  );
   return AppServices(
     permissions: permissions ?? FakePermissions(),
     location: location ?? FakeLocation(),
     camera: () => camera ?? FakeCamera(),
     reports: reports ?? FakeReports(),
+    volunteer: FakeVolunteerApplicationService(),
     sessions: sessions ?? MemorySessionRepository(),
     identity: const MockIdentityVerificationService(
       delay: Duration(milliseconds: 1500),

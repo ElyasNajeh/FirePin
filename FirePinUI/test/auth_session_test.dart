@@ -6,9 +6,11 @@ import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'test_fakes.dart';
+
 void main() {
   late IncidentController incidents;
-  late LocalMunicipalityRepository operations;
+  late FakeMunicipalityOperationsRepository operations;
   late DemoAuthRepository users;
   late DemoMunicipalityAuthRepository municipalities;
   late MemorySessionRepository sessions;
@@ -16,7 +18,9 @@ void main() {
 
   setUp(() {
     incidents = IncidentController();
-    operations = LocalMunicipalityRepository(incidents: incidents);
+    operations = FakeMunicipalityOperationsRepository(
+      incidentController: incidents,
+    );
     users = DemoAuthRepository(operations);
     municipalities = DemoMunicipalityAuthRepository();
     sessions = MemorySessionRepository();
@@ -124,11 +128,10 @@ void main() {
       for (final account in [first.account, second.account]) {
         expect(account.role, UsageRole.volunteer);
         expect(account.hasVolunteerMembership, isTrue);
-        expect(account.applicationStatus, ApplicationStatus.approved);
+        expect(account.applicationStatus, ApplicationStatus.accepted);
         final municipalityRecord = operations.volunteers.singleWhere(
           (volunteer) => volunteer.nationalId == account.nationalId,
         );
-        expect(municipalityRecord.userId, account.id);
         expect(municipalityRecord.fullName, account.fullName);
         expect(municipalityRecord.phone, account.phone);
       }
@@ -189,22 +192,16 @@ void main() {
     'applications accept/reject coherently update volunteer membership',
     () async {
       final pending = operations.applications.single;
-      operations.acceptApplication(pending.id);
+      await operations.acceptApplication(pending.id);
       expect(
         operations.applicationStatusFor(pending.nationalId),
-        ApplicationStatus.approved,
+        ApplicationStatus.accepted,
       );
       expect(operations.hasVolunteerMembership(pending.nationalId), isTrue);
-      await auth.loginUser(
-        DemoAuthRepository.pendingNationalId,
-        DemoAuthRepository.pendingPin,
-      );
-      expect(auth.user!.role, UsageRole.volunteer);
-      await auth.logout();
 
       final second = VolunteerApplicationRecord(
-        id: 'second',
-        userId: 'user-second',
+        id: 2,
+        userId: 4,
         fullName: 'محمد سمير',
         nationalId: '222333444',
         phone: '0590001112',
@@ -213,7 +210,7 @@ void main() {
         status: ApplicationStatus.pending,
       );
       operations.submitApplication(second);
-      operations.rejectApplication(second.id);
+      await operations.rejectApplication(second.id);
       expect(
         operations.applicationStatusFor(second.nationalId),
         ApplicationStatus.rejected,

@@ -4,7 +4,7 @@ enum UsageRole { citizen, volunteer }
 
 enum AccountDestination { home, volunteerWarning, pendingApproval }
 
-enum ApplicationStatus { none, pending, approved, rejected }
+enum ApplicationStatus { none, pending, accepted, rejected }
 
 class IdentityData {
   const IdentityData({
@@ -103,7 +103,7 @@ class OnboardingSession {
       return AccountDestination.home;
     }
 
-    if (applicationStatus == ApplicationStatus.approved) {
+    if (applicationStatus == ApplicationStatus.accepted) {
       return AccountDestination.home;
     }
 
