@@ -240,9 +240,8 @@ class AccountScreen extends StatelessWidget {
   }
 
   String get _volunteerStatus {
-    final stage = incidentController.incident?.stage;
-    if (stage == IncidentStage.responderAccepted ||
-        stage == IncidentStage.responderEnRoute) {
+    if (incidentController.incident?.hasResponded(session.participantId) ==
+        true) {
       return 'استجابة نشطة · أنت في الطريق';
     }
     return 'متاح لاستقبال نداءات الحريق';

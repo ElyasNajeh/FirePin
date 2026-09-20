@@ -79,6 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
             role: _session.role,
             controller: _incidents,
             isReporter: _isReporter,
+            viewerId: _session.participantId,
             onOpenIncident: () => _changeSection(AppSection.home),
           ),
           AppSection.account => AccountScreen(
@@ -102,7 +103,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildHome() {
     final incident = _incident;
     if (incident == null ||
-        (_isApprovedVolunteer && incident.volunteerDeclined)) {
+        (_isApprovedVolunteer &&
+            incident.isDeclinedFor(_session.participantId))) {
       return _isApprovedVolunteer
           ? _VolunteerReadyContent(
               key: const ValueKey('volunteer-ready'),
@@ -125,6 +127,9 @@ class _HomeScreenState extends State<HomeScreen> {
       incident: incident,
       perspective: perspective,
       controller: _incidents,
+      viewerId: _session.participantId,
+      volunteerDisplayName: _session.identity?.fullName,
+      volunteerPhone: _session.phone,
       onViewPhoto: () => showIncidentPhoto(context, incident),
       onContactReporter: () => showReporterContact(context, incident),
     );

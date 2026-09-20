@@ -66,6 +66,7 @@ class _FirePinAppState extends State<FirePinApp> {
   Widget _buildUserExperience() {
     final account = _services.authController.user!;
     final session = OnboardingSession()
+      ..accountId = account.id
       ..identity = IdentityData(
         fullName: account.fullName,
         identityNumber: account.nationalId,

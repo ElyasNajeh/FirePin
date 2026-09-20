@@ -11,10 +11,33 @@ enum IncidentStage {
 }
 
 class IncidentEvent {
-  const IncidentEvent({required this.stage, required this.at});
+  const IncidentEvent({
+    required this.stage,
+    required this.at,
+    this.volunteerId,
+  });
 
   final IncidentStage stage;
   final DateTime at;
+  final String? volunteerId;
+}
+
+enum VolunteerResponseState { responding, declined }
+
+class VolunteerResponse {
+  const VolunteerResponse({
+    required this.volunteerId,
+    required this.state,
+    required this.updatedAt,
+    this.displayName,
+    this.phone,
+  });
+
+  final String volunteerId;
+  final VolunteerResponseState state;
+  final DateTime updatedAt;
+  final String? displayName;
+  final String? phone;
 }
 
 class FireIncident {
@@ -26,12 +49,11 @@ class FireIncident {
     required this.reporterPhone,
     required this.photo,
     required this.events,
+    List<VolunteerResponse>? volunteerResponses,
     this.reporterName,
     this.reporterNationalId,
-    this.responderPhone,
     this.nearbyCitizenAcknowledged = false,
-    this.volunteerDeclined = false,
-  });
+  }) : volunteerResponses = volunteerResponses ?? [];
 
   final String id;
   IncidentStage stage;
@@ -42,14 +64,25 @@ class FireIncident {
   final String? reporterNationalId;
   final Uint8List? photo;
   final List<IncidentEvent> events;
-  String? responderPhone;
+  final List<VolunteerResponse> volunteerResponses;
   bool nearbyCitizenAcknowledged;
-  bool volunteerDeclined;
 
   bool get isResolved => stage == IncidentStage.resolved;
-  bool get hasResponder =>
-      stage == IncidentStage.responderAccepted ||
-      stage == IncidentStage.responderEnRoute;
+  Iterable<VolunteerResponse> get responders => volunteerResponses.where(
+    (response) => response.state == VolunteerResponseState.responding,
+  );
+  int get responderCount => responders.length;
+  bool get hasResponder => responderCount > 0;
+
+  VolunteerResponse? responseFor(String volunteerId) => volunteerResponses
+      .where((response) => response.volunteerId == volunteerId)
+      .firstOrNull;
+
+  bool hasResponded(String volunteerId) =>
+      responseFor(volunteerId)?.state == VolunteerResponseState.responding;
+
+  bool isDeclinedFor(String volunteerId) =>
+      responseFor(volunteerId)?.state == VolunteerResponseState.declined;
 }
 
 /// Frontend incident boundary for the demo. A backend/realtime implementation
@@ -84,15 +117,30 @@ class IncidentController extends ChangeNotifier {
     _moveTo(IncidentStage.waitingForResponder);
   }
 
-  void acceptByVolunteer({String phone = '059 123 4567'}) {
+  void acceptByVolunteer({
+    required String volunteerId,
+    String? displayName,
+    String? phone,
+  }) {
     final current = _incident;
-    if (current == null || current.stage != IncidentStage.waitingForResponder) {
+    if (current == null || current.isResolved) {
       return;
     }
-    current.responderPhone = phone;
-    current.volunteerDeclined = false;
-    _moveTo(IncidentStage.responderAccepted);
-    _moveTo(IncidentStage.responderEnRoute);
+    if (current.hasResponded(volunteerId)) return;
+    current.volunteerResponses.removeWhere(
+      (response) => response.volunteerId == volunteerId,
+    );
+    current.volunteerResponses.add(
+      VolunteerResponse(
+        volunteerId: volunteerId,
+        displayName: displayName,
+        phone: phone,
+        state: VolunteerResponseState.responding,
+        updatedAt: DateTime.now(),
+      ),
+    );
+    _moveTo(IncidentStage.responderAccepted, volunteerId: volunteerId);
+    _moveTo(IncidentStage.responderEnRoute, volunteerId: volunteerId);
   }
 
   void acknowledgeNearbyAlert() {
@@ -102,27 +150,58 @@ class IncidentController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void withdrawVolunteerResponse() {
+  void withdrawVolunteerResponse(String volunteerId) {
     final current = _incident;
-    if (current == null || !current.hasResponder) return;
-    current.responderPhone = null;
-    current.volunteerDeclined = true;
-    _moveTo(IncidentStage.waitingForResponder);
-  }
-
-  void declineVolunteerRequest() {
-    final current = _incident;
-    if (current == null || current.stage != IncidentStage.waitingForResponder) {
+    if (current == null ||
+        current.isResolved ||
+        !current.hasResponded(volunteerId)) {
       return;
     }
-    current.volunteerDeclined = true;
+    current.volunteerResponses.removeWhere(
+      (response) => response.volunteerId == volunteerId,
+    );
+    if (current.responderCount == 0) {
+      _moveTo(IncidentStage.waitingForResponder);
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void declineForVolunteer({
+    required String volunteerId,
+    String? displayName,
+    String? phone,
+  }) {
+    final current = _incident;
+    if (current == null ||
+        current.isResolved ||
+        current.hasResponded(volunteerId) ||
+        current.isDeclinedFor(volunteerId)) {
+      return;
+    }
+    current.volunteerResponses.removeWhere(
+      (response) => response.volunteerId == volunteerId,
+    );
+    current.volunteerResponses.add(
+      VolunteerResponse(
+        volunteerId: volunteerId,
+        displayName: displayName,
+        phone: phone,
+        state: VolunteerResponseState.declined,
+        updatedAt: DateTime.now(),
+      ),
+    );
     notifyListeners();
   }
 
-  void resolve() {
+  void resolveByVolunteer(String volunteerId) {
     final current = _incident;
-    if (current == null || current.isResolved) return;
-    _moveTo(IncidentStage.resolved);
+    if (current == null ||
+        current.isResolved ||
+        !current.hasResponded(volunteerId)) {
+      return;
+    }
+    _moveTo(IncidentStage.resolved, volunteerId: volunteerId);
   }
 
   void dismissResolved() {
@@ -131,11 +210,13 @@ class IncidentController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _moveTo(IncidentStage stage) {
+  void _moveTo(IncidentStage stage, {String? volunteerId}) {
     final current = _incident;
     if (current == null) return;
     current.stage = stage;
-    current.events.add(IncidentEvent(stage: stage, at: DateTime.now()));
+    current.events.add(
+      IncidentEvent(stage: stage, at: DateTime.now(), volunteerId: volunteerId),
+    );
     notifyListeners();
   }
 }

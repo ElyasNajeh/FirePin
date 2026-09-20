@@ -11,12 +11,14 @@ class AlertsScreen extends StatefulWidget {
     required this.role,
     required this.controller,
     required this.isReporter,
+    required this.viewerId,
     required this.onOpenIncident,
   });
 
   final UsageRole role;
   final IncidentController controller;
   final bool isReporter;
+  final String viewerId;
   final VoidCallback onOpenIncident;
 
   @override
@@ -35,7 +37,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
       final showCurrent =
           incident != null &&
           !incident.isResolved &&
-          (!volunteer || !incident.volunteerDeclined);
+          (!volunteer || !incident.isDeclinedFor(widget.viewerId));
       final filters = volunteer
           ? const ['الكل', 'الحالية', 'السجل']
           : const ['الكل', 'الحرائق', 'حالة بلاغاتي'];
@@ -57,6 +59,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
               incident: incident,
               volunteer: volunteer,
               isReporter: widget.isReporter,
+              viewerId: widget.viewerId,
               onTap: widget.onOpenIncident,
             ),
           ],
@@ -99,7 +102,10 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   List<Widget> _historyFor(FireIncident incident, bool volunteer) {
     final events = incident.events.reversed.where((event) {
-      if (volunteer) return event.stage != IncidentStage.reported;
+      if (volunteer) {
+        return event.stage != IncidentStage.reported &&
+            (event.volunteerId == null || event.volunteerId == widget.viewerId);
+      }
       return true;
     });
     return events
@@ -133,11 +139,11 @@ class _AlertsScreenState extends State<AlertsScreen> {
     IncidentStage.responderAccepted =>
       volunteer
           ? 'تم ربط استجابتك بالحادث.'
-          : 'وافق متطوع معتمد على الاستجابة للحادث.',
+          : 'تم تسجيل استجابة متطوع معتمد للحادث.',
     IncidentStage.responderEnRoute =>
       volunteer
           ? 'المسار إلى موقع الحريق نشط.'
-          : 'يمكن متابعة مسار المتطوع نحو الحريق.',
+          : 'تم تحديث عدد المتطوعين المستجيبين للحادث.',
     IncidentStage.resolved => 'انتهى الحادث ولم يعد التنبيه نشطًا.',
   };
 
@@ -154,28 +160,28 @@ class _CurrentIncidentCard extends StatelessWidget {
     required this.incident,
     required this.volunteer,
     required this.isReporter,
+    required this.viewerId,
     required this.onTap,
   });
   final FireIncident incident;
   final bool volunteer;
   final bool isReporter;
+  final String viewerId;
   final VoidCallback onTap;
 
-  bool get _enRoute =>
-      incident.stage == IncidentStage.responderAccepted ||
-      incident.stage == IncidentStage.responderEnRoute;
+  bool get _hasResponded => incident.hasResponded(viewerId);
 
   @override
   Widget build(BuildContext context) {
     final urgent =
         volunteer || (!isReporter && !incident.nearbyCitizenAcknowledged);
     final title = volunteer
-        ? _enRoute
+        ? _hasResponded
               ? 'الاستجابة نشطة الآن'
               : 'نداء حريق جديد'
         : isReporter
-        ? _enRoute
-              ? 'متطوع في الطريق إليك'
+        ? incident.responderCount > 0
+              ? 'استجاب ${incident.responderCount} من المتطوعين'
               : 'بلاغك قيد الاستجابة'
         : incident.nearbyCitizenAcknowledged
         ? 'حريق قريب · تم إيقاف التنبيه'
@@ -197,9 +203,11 @@ class _CurrentIncidentCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             volunteer
-                ? 'موقع الحادث والمسار وتفاصيل المبلّغ متاحة الآن.'
+                ? _hasResponded
+                      ? 'مسارك إلى الحادث وتفاصيل المبلّغ متاحة الآن.'
+                      : 'الحادث متاح للاستجابة حتى مع استجابة متطوعين آخرين.'
                 : isReporter
-                ? 'افتح الحالة لمتابعة البلاغ والاستجابة على الخريطة.'
+                ? 'افتح الحالة لمتابعة البلاغ وعدد المستجيبين.'
                 : 'ابتعد عن منطقة الخطر وافتح الخريطة لمتابعة الحالة.',
             style: AppType.text(12, color: AppColors.textSecondary),
           ),

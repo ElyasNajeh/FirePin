@@ -509,7 +509,9 @@ void main() {
 
   testWidgets('volunteer call advances to active response', (tester) async {
     mobileSize(tester);
-    final session = OnboardingSession()..role = UsageRole.volunteer;
+    final session = OnboardingSession()
+      ..accountId = 'volunteer-a'
+      ..role = UsageRole.volunteer;
     final incidents = IncidentController()
       ..report(
         location: const LocationFix(31.78, 35.24, 10),
@@ -543,7 +545,153 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('reporter status progresses to volunteer incoming', (
+  testWidgets('each volunteer can respond and sees only their own route', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591234567',
+        photo: testPhoto,
+      )
+      ..acceptByVolunteer(
+        volunteerId: 'volunteer-a',
+        displayName: 'المتطوع أ',
+        phone: '0591111111',
+      );
+    final volunteerB = OnboardingSession()
+      ..accountId = 'volunteer-b'
+      ..phone = '0592222222'
+      ..role = UsageRole.volunteer;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerB,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('نداء حريق جديد'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsNothing,
+    );
+
+    await tapLabel(tester, 'تلبية النداء');
+    expect(incidents.incident!.responderCount, 2);
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-location-volunteer-b')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsNothing,
+    );
+
+    final volunteerA = OnboardingSession()
+      ..accountId = 'volunteer-a'
+      ..phone = '0591111111'
+      ..role = UsageRole.volunteer;
+    await tester.pumpWidget(
+      MaterialApp(
+        key: const ValueKey('volunteer-a-view'),
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerA,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-location-volunteer-a')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('declining hides an incident only for that volunteer', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591234567',
+      )
+      ..acceptByVolunteer(volunteerId: 'volunteer-a');
+    final volunteerC = OnboardingSession()
+      ..accountId = 'volunteer-c'
+      ..role = UsageRole.volunteer;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerC,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+
+    await tapLabel(tester, 'تعذّر عليّ الاستجابة');
+    expect(incidents.incident!.isDeclinedFor('volunteer-c'), isTrue);
+    expect(incidents.incident!.hasResponded('volunteer-a'), isTrue);
+    expect(find.text('✓ متطوع معتمد'), findsOneWidget);
+
+    final volunteerB = OnboardingSession()
+      ..accountId = 'volunteer-b'
+      ..role = UsageRole.volunteer;
+    await tester.pumpWidget(
+      MaterialApp(
+        key: const ValueKey('volunteer-b-after-decline'),
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerB,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('تلبية النداء'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reporter sees responder count without volunteer routes', (
     tester,
   ) async {
     mobileSize(tester);
@@ -569,10 +717,22 @@ void main() {
     );
     expect(find.text('تم استلام البلاغ'), findsOneWidget);
     expect(find.text('جارٍ البحث'), findsOneWidget);
-    incidents.acceptByVolunteer();
+    incidents.acceptByVolunteer(volunteerId: 'volunteer-a');
+    incidents.acceptByVolunteer(volunteerId: 'volunteer-b');
     await tester.pump(const Duration(milliseconds: 400));
-    expect(find.text('متطوع في الطريق إليك'), findsOneWidget);
-    expect(find.byType(CustomPaint), findsWidgets);
+    expect(find.text('استجاب 2 من المتطوعين'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-location-volunteer-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsNothing,
+    );
     await tapLabel(tester, 'رؤية الصورة المرسلة');
     expect(find.text('الصورة المرسلة'), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);

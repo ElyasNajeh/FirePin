@@ -43,7 +43,13 @@ void main() {
         reporterPhone: '0591111111',
         photo: testPhoto,
       );
-    if (accepted) controller.acceptByVolunteer();
+    if (accepted) {
+      controller.acceptByVolunteer(
+        volunteerId: 'user-volunteer',
+        displayName: 'ليان أحمد صالح',
+        phone: '0592223344',
+      );
+    }
     return controller;
   }
 
@@ -104,8 +110,10 @@ void main() {
     '19_volunteer_route': () => HomeScreen(
       hasLocation: true,
       onReport: () {},
-      session: OnboardingSession()..role = UsageRole.volunteer,
-      incidentController: demoIncident(),
+      session: OnboardingSession()
+        ..accountId = 'user-volunteer'
+        ..role = UsageRole.volunteer,
+      incidentController: demoIncident(accepted: true),
     ),
     '16_fire_camera': () => FireCameraScreen(
       services: services,

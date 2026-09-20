@@ -196,6 +196,7 @@ class LocalMunicipalityRepository extends ChangeNotifier
   @override
   List<MunicipalityIncidentRecord> get incidents {
     final local = _incidentController.incident;
+    final firstResponder = local?.responders.firstOrNull;
     return [
       if (local != null)
         MunicipalityIncidentRecord(
@@ -209,8 +210,8 @@ class LocalMunicipalityRepository extends ChangeNotifier
           latitude: local.fireLocation.latitude,
           longitude: local.fireLocation.longitude,
           municipalityName: 'بلدية القدس',
-          assignedVolunteerName: local.hasResponder ? 'ليان أحمد صالح' : null,
-          assignedVolunteerPhone: local.responderPhone,
+          assignedVolunteerName: firstResponder?.displayName,
+          assignedVolunteerPhone: firstResponder?.phone,
           photo: local.photo,
           events: List.unmodifiable(local.events),
         ),
