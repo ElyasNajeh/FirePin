@@ -5,6 +5,7 @@ import '../../theme/app_theme.dart';
 import '../auth/auth_models.dart';
 import '../incidents/incident_controller.dart';
 import '../onboarding/onboarding_models.dart';
+import 'municipality_map_layout.dart';
 import 'municipality_repository.dart';
 
 enum MunicipalitySection {
@@ -329,11 +330,15 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   }
 
   Widget _volunteers() {
-    final activePhone = widget.repository.incidents
-        .where(
-          (item) => !item.isResolved && item.assignedVolunteerPhone != null,
-        )
-        .map((item) => item.assignedVolunteerPhone)
+    final activeResponders = widget.repository.incidents
+        .where((item) => !item.isResolved)
+        .expand((item) => item.responders)
+        .toList();
+    final activeIds = activeResponders
+        .map((response) => response.volunteerId)
+        .toSet();
+    final activePhones = activeResponders
+        .map((response) => response.phone)
         .toSet();
     return Column(
       children: [
@@ -363,8 +368,13 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
                   ),
                 ),
                 _StatusBadge(
-                  activePhone.contains(volunteer.phone) ? 'في استجابة' : 'متاح',
-                  warning: activePhone.contains(volunteer.phone),
+                  activeIds.contains(volunteer.userId) ||
+                          activePhones.contains(volunteer.phone)
+                      ? 'في استجابة'
+                      : 'متاح',
+                  warning:
+                      activeIds.contains(volunteer.userId) ||
+                      activePhones.contains(volunteer.phone),
                 ),
               ],
             ),
@@ -420,7 +430,15 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   void _openIncident(MunicipalityIncidentRecord incident) {
     showDialog<void>(
       context: context,
-      builder: (_) => _IncidentDetails(incident: incident),
+      builder: (_) => AnimatedBuilder(
+        animation: widget.repository,
+        builder: (context, _) {
+          final current = widget.repository.incidents
+              .where((item) => item.id == incident.id)
+              .firstOrNull;
+          return _IncidentDetails(incident: current ?? incident);
+        },
+      ),
     );
   }
 }
@@ -462,6 +480,9 @@ class _StatCard extends StatelessWidget {
 class _OperationsMap extends StatelessWidget {
   const _OperationsMap({required this.incidents});
   final List<MunicipalityIncidentRecord> incidents;
+  static const MunicipalityResponderMapLayout _responderLayout =
+      DeterministicMockResponderMapLayout();
+
   @override
   Widget build(BuildContext context) => SurfaceCard(
     padding: 0,
@@ -469,41 +490,175 @@ class _OperationsMap extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: SizedBox(
         height: 330,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            const FigmaIcon('basemap', fit: BoxFit.cover),
-            for (var i = 0; i < incidents.length && i < 3; i++)
-              Positioned(
-                right: 80.0 + i * 76,
-                top: 105.0 + i * 45,
-                child: const CircleAvatar(
-                  radius: 19,
-                  backgroundColor: AppColors.emergency,
-                  child: Icon(
-                    Icons.local_fire_department,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final size = Size(constraints.maxWidth, 330);
+            final visible = incidents.take(3).toList();
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                const FigmaIcon('basemap', fit: BoxFit.cover),
+                ..._responderRoutes(visible, size),
+                ..._fireMarkers(visible, size),
+                ..._responderMarkers(visible, size),
+                Positioned(
+                  top: 14,
+                  right: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     color: Colors.white,
-                    size: 20,
+                    child: Text(
+                      'خريطة البلاغات النشطة',
+                      style: AppType.caption,
+                    ),
                   ),
                 ),
-              ),
-            Positioned(
-              top: 14,
-              right: 14,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                color: Colors.white,
-                child: Text('خريطة البلاغات النشطة', style: AppType.caption),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     ),
   );
+
+  List<Widget> _responderRoutes(
+    List<MunicipalityIncidentRecord> visible,
+    Size size,
+  ) => [
+    for (final (incidentIndex, incident) in visible.indexed)
+      for (final response in incident.responders)
+        CustomPaint(
+          key: ValueKey(
+            'municipality-responder-route-${incident.id}-${response.volunteerId}',
+          ),
+          painter: MunicipalityResponderRoutePainter(
+            start: _responderStart(incident, response, size),
+            end: _firePosition(incidentIndex, size),
+            controlBias: _responderLayout
+                .placementFor(
+                  incidentId: incident.id,
+                  volunteerId: response.volunteerId,
+                )
+                .normalizedControlBias,
+          ),
+        ),
+  ];
+
+  List<Widget> _fireMarkers(
+    List<MunicipalityIncidentRecord> visible,
+    Size size,
+  ) => [
+    for (final (index, incident) in visible.indexed)
+      Positioned(
+        key: ValueKey('municipality-fire-${incident.id}'),
+        left: _firePosition(index, size).dx - 19,
+        top: _firePosition(index, size).dy - 19,
+        child: const CircleAvatar(
+          radius: 19,
+          backgroundColor: AppColors.emergency,
+          child: Icon(
+            Icons.local_fire_department,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
+  ];
+
+  List<Widget> _responderMarkers(
+    List<MunicipalityIncidentRecord> visible,
+    Size size,
+  ) => [
+    for (final incident in visible)
+      for (final response in incident.responders)
+        Positioned(
+          key: ValueKey(
+            'municipality-responder-marker-${incident.id}-${response.volunteerId}',
+          ),
+          left: _responderStart(incident, response, size).dx - 16,
+          top: _responderStart(incident, response, size).dy - 16,
+          child: Tooltip(
+            message: response.displayName ?? response.volunteerId,
+            child: const CircleAvatar(
+              radius: 16,
+              backgroundColor: AppColors.primary,
+              child: Icon(Icons.person, color: Colors.white, size: 17),
+            ),
+          ),
+        ),
+  ];
+
+  Offset _responderStart(
+    MunicipalityIncidentRecord incident,
+    VolunteerResponse response,
+    Size size,
+  ) {
+    final normalized = _responderLayout
+        .placementFor(
+          incidentId: incident.id,
+          volunteerId: response.volunteerId,
+        )
+        .normalizedStart;
+    return Offset(normalized.dx * size.width, normalized.dy * size.height);
+  }
+
+  Offset _firePosition(int index, Size size) {
+    const positions = [
+      Offset(0.72, 0.30),
+      Offset(0.64, 0.55),
+      Offset(0.80, 0.72),
+    ];
+    final normalized = positions[index % positions.length];
+    return Offset(normalized.dx * size.width, normalized.dy * size.height);
+  }
+}
+
+class MunicipalityResponderRoutePainter extends CustomPainter {
+  const MunicipalityResponderRoutePainter({
+    required this.start,
+    required this.end,
+    required this.controlBias,
+  });
+
+  final Offset start;
+  final Offset end;
+  final Offset controlBias;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final midpoint = Offset((start.dx + end.dx) / 2, (start.dy + end.dy) / 2);
+    final control =
+        midpoint +
+        Offset(controlBias.dx * size.width, controlBias.dy * size.height);
+    final path = Path()
+      ..moveTo(start.dx, start.dy)
+      ..quadraticBezierTo(control.dx, control.dy, end.dx, end.dy);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.88)
+        ..strokeWidth = 7
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke,
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppColors.primary.withValues(alpha: 0.78)
+        ..strokeWidth = 4
+        ..strokeCap = StrokeCap.round
+        ..style = PaintingStyle.stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(MunicipalityResponderRoutePainter oldDelegate) =>
+      start != oldDelegate.start ||
+      end != oldDelegate.end ||
+      controlBias != oldDelegate.controlBias;
 }
 
 class _ActiveSummary extends StatelessWidget {
@@ -530,7 +685,7 @@ class _ActiveSummary extends StatelessWidget {
               ),
               title: Text(incident.id),
               subtitle: Text(
-                '${_stage(incident.stage)}\n${incident.locationLabel}',
+                '${_stage(incident.stage)} · ${_responderSummary(incident.responderCount)}\n${incident.locationLabel}',
               ),
               isThreeLine: true,
               trailing: const Icon(Icons.chevron_left),
@@ -573,11 +728,21 @@ class _IncidentCard extends StatelessWidget {
                   style: AppType.caption,
                 ),
                 Text(
-                  incident.assignedVolunteerName == null
-                      ? 'لم يتم تعيين متطوع بعد'
-                      : 'المتطوع: ${incident.assignedVolunteerName}',
+                  _responderSummary(incident.responderCount),
                   style: AppType.caption,
                 ),
+                if (incident.responders.isNotEmpty)
+                  Text(
+                    incident.responders
+                        .map(
+                          (response) =>
+                              response.displayName ?? response.volunteerId,
+                        )
+                        .join('، '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.caption,
+                  ),
               ],
             ),
           ),
@@ -630,13 +795,23 @@ class _IncidentDetails extends StatelessWidget {
                 _Detail('هاتف المُبلّغ', incident.reporterPhone),
                 _Detail('رقم الهوية', incident.reporterNationalId),
                 _Detail('الجهة المسؤولة', incident.municipalityName),
-                _Detail(
-                  'المتطوع',
-                  incident.assignedVolunteerName ?? 'لم يتم التعيين',
-                ),
-                _Detail('هاتف المتطوع', incident.assignedVolunteerPhone ?? '—'),
+                _Detail('المستجيبون', '${incident.responderCount}'),
               ],
             ),
+            const SizedBox(height: 16),
+            Text('المتطوعون المستجيبون', style: AppType.section),
+            const SizedBox(height: 8),
+            if (incident.responders.isEmpty)
+              Text('لا يوجد متطوعون في الطريق حاليًا.', style: AppType.caption)
+            else
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final response in incident.responders)
+                    _ResponderCard(response: response),
+                ],
+              ),
             if (incident.photo != null) ...[
               const SizedBox(height: 16),
               ClipRRect(
@@ -665,6 +840,40 @@ class _IncidentDetails extends StatelessWidget {
           ],
         ),
       ),
+    ),
+  );
+}
+
+class _ResponderCard extends StatelessWidget {
+  const _ResponderCard({required this.response});
+  final VolunteerResponse response;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: ValueKey('municipality-responder-detail-${response.volunteerId}'),
+    width: 210,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppColors.primaryContainer,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: AppColors.outline),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          response.displayName ?? response.volunteerId,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: AppType.text(13, weight: FontWeight.w700),
+        ),
+        if (response.phone?.isNotEmpty == true)
+          Text(response.phone!, style: AppType.caption),
+        Text(
+          'في الطريق إلى الحريق',
+          style: AppType.text(11, color: AppColors.primary),
+        ),
+      ],
     ),
   );
 }
@@ -739,9 +948,12 @@ String _stage(IncidentStage stage) => switch (stage) {
   IncidentStage.reported => 'تم استلام البلاغ',
   IncidentStage.waitingForResponder => 'جارٍ البحث عن مستجيب',
   IncidentStage.responderAccepted => 'تمت تلبية النداء',
-  IncidentStage.responderEnRoute => 'متطوع في الطريق',
+  IncidentStage.responderEnRoute => 'متطوعون في الطريق',
   IncidentStage.resolved => 'تمت معالجة الحالة',
 };
+
+String _responderSummary(int count) =>
+    count == 0 ? 'لا يوجد متطوعون في الطريق' : '$count متطوعين في الطريق';
 
 String _date(DateTime value) => '${value.day}/${value.month}/${value.year}';
 String _dateTime(DateTime value) =>

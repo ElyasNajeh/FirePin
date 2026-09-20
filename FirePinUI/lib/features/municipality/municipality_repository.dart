@@ -68,8 +68,7 @@ class MunicipalityIncidentRecord {
     required this.longitude,
     required this.municipalityName,
     required this.events,
-    this.assignedVolunteerName,
-    this.assignedVolunteerPhone,
+    this.responders = const [],
     this.photo,
   });
 
@@ -84,11 +83,11 @@ class MunicipalityIncidentRecord {
   final double longitude;
   final String municipalityName;
   final List<IncidentEvent> events;
-  final String? assignedVolunteerName;
-  final String? assignedVolunteerPhone;
+  final List<VolunteerResponse> responders;
   final Uint8List? photo;
 
   bool get isResolved => stage == IncidentStage.resolved;
+  int get responderCount => responders.length;
 }
 
 abstract interface class MunicipalityRepository implements Listenable {
@@ -167,8 +166,6 @@ class LocalMunicipalityRepository extends ChangeNotifier
       latitude: 31.79,
       longitude: 35.23,
       municipalityName: 'بلدية القدس',
-      assignedVolunteerName: 'ليان أحمد صالح',
-      assignedVolunteerPhone: '059 222 3344',
       events: [
         IncidentEvent(
           stage: IncidentStage.reported,
@@ -196,7 +193,6 @@ class LocalMunicipalityRepository extends ChangeNotifier
   @override
   List<MunicipalityIncidentRecord> get incidents {
     final local = _incidentController.incident;
-    final firstResponder = local?.responders.firstOrNull;
     return [
       if (local != null)
         MunicipalityIncidentRecord(
@@ -210,8 +206,9 @@ class LocalMunicipalityRepository extends ChangeNotifier
           latitude: local.fireLocation.latitude,
           longitude: local.fireLocation.longitude,
           municipalityName: 'بلدية القدس',
-          assignedVolunteerName: firstResponder?.displayName,
-          assignedVolunteerPhone: firstResponder?.phone,
+          responders: local.isResolved
+              ? const []
+              : List.unmodifiable(local.responders),
           photo: local.photo,
           events: List.unmodifiable(local.events),
         ),
