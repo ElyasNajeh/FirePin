@@ -130,6 +130,14 @@ class LocalMunicipalityRepository extends ChangeNotifier
       birthDate: '22 / 03 / 1996',
       approvedAt: DateTime(2026, 8, 12),
     ),
+    VolunteerRecord(
+      userId: 'user-volunteer-2',
+      fullName: 'عمر يوسف النجار',
+      nationalId: '864209753',
+      phone: '059 333 4466',
+      birthDate: '06 / 07 / 1995',
+      approvedAt: DateTime(2026, 8, 20),
+    ),
   ];
 
   late final List<MunicipalityIncidentRecord> _seedIncidents = [

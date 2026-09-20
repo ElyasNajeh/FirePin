@@ -88,22 +88,73 @@ void main() {
   });
 
   test(
-    'role resolution covers citizen, approved volunteer and pending',
+    'demo citizens authenticate independently without volunteer access',
     () async {
-      await auth.loginUser('123456789', '1234');
-      expect(auth.user!.role, UsageRole.citizen);
-      await auth.logout();
+      final first = await users.loginUser(
+        nationalId: DemoAuthRepository.citizenNationalId,
+        pin: DemoAuthRepository.citizenPin,
+      );
+      final second = await users.loginUser(
+        nationalId: DemoAuthRepository.secondCitizenNationalId,
+        pin: DemoAuthRepository.secondCitizenPin,
+      );
 
-      await auth.loginUser('987654321', '4321');
-      expect(auth.user!.role, UsageRole.volunteer);
-      expect(auth.user!.applicationStatus, ApplicationStatus.approved);
-      await auth.logout();
-
-      await auth.loginUser('111222333', '1234');
-      expect(auth.user!.role, UsageRole.citizen);
-      expect(auth.user!.applicationStatus, ApplicationStatus.pending);
+      expect(first.account.id, isNot(second.account.id));
+      for (final account in [first.account, second.account]) {
+        expect(account.role, UsageRole.citizen);
+        expect(account.hasVolunteerMembership, isFalse);
+        expect(account.applicationStatus, ApplicationStatus.none);
+      }
     },
   );
+
+  test(
+    'demo volunteers authenticate independently with matching membership',
+    () async {
+      final first = await users.loginUser(
+        nationalId: DemoAuthRepository.volunteerNationalId,
+        pin: DemoAuthRepository.volunteerPin,
+      );
+      final second = await users.loginUser(
+        nationalId: DemoAuthRepository.secondVolunteerNationalId,
+        pin: DemoAuthRepository.secondVolunteerPin,
+      );
+
+      expect(first.account.id, isNot(second.account.id));
+      for (final account in [first.account, second.account]) {
+        expect(account.role, UsageRole.volunteer);
+        expect(account.hasVolunteerMembership, isTrue);
+        expect(account.applicationStatus, ApplicationStatus.approved);
+        final municipalityRecord = operations.volunteers.singleWhere(
+          (volunteer) => volunteer.nationalId == account.nationalId,
+        );
+        expect(municipalityRecord.userId, account.id);
+        expect(municipalityRecord.fullName, account.fullName);
+        expect(municipalityRecord.phone, account.phone);
+      }
+    },
+  );
+
+  test('pending demo volunteer remains pending without membership', () async {
+    await auth.loginUser(
+      DemoAuthRepository.pendingNationalId,
+      DemoAuthRepository.pendingPin,
+    );
+
+    expect(auth.user!.role, UsageRole.citizen);
+    expect(auth.user!.hasVolunteerMembership, isFalse);
+    expect(auth.user!.applicationStatus, ApplicationStatus.pending);
+  });
+
+  test('wrong PIN fails for an additional demo account', () async {
+    await expectLater(
+      users.loginUser(
+        nationalId: DemoAuthRepository.secondVolunteerNationalId,
+        pin: '0000',
+      ),
+      throwsA(isA<AuthFailure>()),
+    );
+  });
 
   test('logout clears persisted and in-memory session state', () async {
     await auth.loginUser('123456789', '1234');

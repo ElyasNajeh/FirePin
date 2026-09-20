@@ -90,14 +90,20 @@ class DemoAuthRepository implements AuthRepository {
 
   static const citizenNationalId = '123456789';
   static const citizenPin = '1234';
+  static const secondCitizenNationalId = '246813579';
+  static const secondCitizenPin = '2468';
   static const volunteerNationalId = '987654321';
   static const volunteerPin = '4321';
+  static const secondVolunteerNationalId = '864209753';
+  static const secondVolunteerPin = '5678';
   static const pendingNationalId = '111222333';
   static const pendingPin = '1234';
 
   final Map<String, String> _pins = {
     citizenNationalId: citizenPin,
+    secondCitizenNationalId: secondCitizenPin,
     volunteerNationalId: volunteerPin,
+    secondVolunteerNationalId: secondVolunteerPin,
     pendingNationalId: pendingPin,
   };
   final Map<String, UserAccount> _accounts = {
@@ -111,6 +117,16 @@ class DemoAuthRepository implements AuthRepository {
       applicationStatus: ApplicationStatus.none,
       hasVolunteerMembership: false,
     ),
+    secondCitizenNationalId: const UserAccount(
+      id: 'user-citizen-2',
+      fullName: 'ريم سامر حمدان',
+      nationalId: secondCitizenNationalId,
+      phone: '059 333 4455',
+      birthDate: '17 / 11 / 2001',
+      address: 'القدس — بيت حنينا',
+      applicationStatus: ApplicationStatus.none,
+      hasVolunteerMembership: false,
+    ),
     volunteerNationalId: const UserAccount(
       id: 'user-volunteer',
       fullName: 'ليان أحمد صالح',
@@ -118,6 +134,16 @@ class DemoAuthRepository implements AuthRepository {
       phone: '059 222 3344',
       birthDate: '22 / 03 / 1996',
       address: 'القدس — وادي الجوز',
+      applicationStatus: ApplicationStatus.approved,
+      hasVolunteerMembership: true,
+    ),
+    secondVolunteerNationalId: const UserAccount(
+      id: 'user-volunteer-2',
+      fullName: 'عمر يوسف النجار',
+      nationalId: secondVolunteerNationalId,
+      phone: '059 333 4466',
+      birthDate: '06 / 07 / 1995',
+      address: 'القدس — شعفاط',
       applicationStatus: ApplicationStatus.approved,
       hasVolunteerMembership: true,
     ),
