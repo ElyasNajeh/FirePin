@@ -55,7 +55,7 @@ void main() {
       session.applicationStatus = ApplicationStatus.pending;
       expect(session.destination, AccountDestination.pendingApproval);
       session.role = UsageRole.citizen;
-      expect(session.destination, AccountDestination.pendingApproval);
+      expect(session.destination, AccountDestination.home);
     },
   );
   test('phone validation normalizes Arabic numerals and spacing', () {

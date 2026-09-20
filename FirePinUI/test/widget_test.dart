@@ -1,7 +1,12 @@
 import 'package:firepin_ui/app/firepin_app.dart';
 import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/core/ui/live_camera.dart';
+import 'package:firepin_ui/features/account/account_screen.dart';
+import 'package:firepin_ui/features/alerts/alerts_screen.dart';
 import 'package:firepin_ui/features/home/home_screen.dart';
+import 'package:firepin_ui/features/incidents/incident_controller.dart';
+import 'package:firepin_ui/features/incidents/incident_screen.dart';
+import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/permission_screens.dart';
@@ -29,8 +34,9 @@ void mobileSize(WidgetTester tester, {Size size = const Size(390, 844)}) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Future<void> toRoleSelection(WidgetTester tester) async {
-  await tapLabel(tester, 'ابدأ التحقق');
+Future<void> toPhoneNumber(WidgetTester tester) async {
+  await tester.pump();
+  await tapLabel(tester, 'إنشاء حساب جديد');
   await tapLabel(tester, 'السماح باستخدام الكاميرا');
   await tester.pump(const Duration(milliseconds: 100));
   await tapLabel(tester, 'التقاط الصورة');
@@ -43,15 +49,19 @@ Future<void> toRoleSelection(WidgetTester tester) async {
   expect(find.byType(IdentityReviewScreen), findsOneWidget);
   expect(find.text('تاريخ الانتهاء'), findsNothing);
   await tapLabel(tester, 'التالي');
+  expect(find.byType(PhoneNumberScreen), findsOneWidget);
+}
+
+Future<void> toRoleSelection(WidgetTester tester) async {
+  await toPhoneNumber(tester);
   await tester.enterText(
     find.byKey(const ValueKey('phone-number')),
     '0591234567',
   );
-  await tapLabel(tester, 'إرسال رمز التحقق');
-  await tester.enterText(find.byKey(const ValueKey('رمز التحقق')), '123456');
-  await tapLabel(tester, 'تحقق');
-  expect(find.byType(PhoneSuccessScreen), findsOneWidget);
   await tapLabel(tester, 'متابعة');
+  expect(find.byType(PinScreen), findsOneWidget);
+  expect(find.byType(OtpScreen), findsNothing);
+  expect(find.byType(PhoneSuccessScreen), findsNothing);
   await tester.enterText(find.byKey(const ValueKey('رمز الدخول')), '0123');
   await tester.enterText(
     find.byKey(const ValueKey('تأكيد رمز الدخول')),
@@ -68,32 +78,27 @@ void main() {
       ..addFont(rootBundle.load('assets/fonts/Cairo.ttf'));
     await loader.load();
   });
-  testWidgets(
-    'Arabic welcome uses RTL and keeps logins as local placeholders',
-    (tester) async {
-      mobileSize(tester);
-      await tester.pumpWidget(FirePinApp(services: fakeServices()));
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(
-        Directionality.of(tester.element(find.byType(WelcomeScreen))),
-        TextDirection.rtl,
-      );
-      expect(
-        Localizations.localeOf(
-          tester.element(find.byType(WelcomeScreen)),
-        ).languageCode,
-        'ar',
-      );
-      expect(find.text('إنشاء حساب موثّق'), findsOneWidget);
-      await tapLabel(tester, 'تسجيل الدخول بحساب البلدية');
-      expect(find.byType(WelcomeScreen), findsOneWidget);
-      expect(
-        find.text('تسجيل الدخول بحساب البلدية سيتوفر قريبًا.'),
-        findsOneWidget,
-      );
-      expect(tester.takeException(), isNull);
-    },
-  );
+  testWidgets('Arabic welcome uses RTL and opens municipality login', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    await tester.pumpWidget(FirePinApp(services: fakeServices()));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(
+      Directionality.of(tester.element(find.byType(WelcomeScreen))),
+      TextDirection.rtl,
+    );
+    expect(
+      Localizations.localeOf(
+        tester.element(find.byType(WelcomeScreen)),
+      ).languageCode,
+      'ar',
+    );
+    expect(find.text('إنشاء حساب موثّق'), findsOneWidget);
+    await tapLabel(tester, 'دخول الجهة المسؤولة');
+    expect(find.byType(WelcomeScreen), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('camera denial stays put and permanent denial opens settings', (
     tester,
@@ -103,7 +108,8 @@ void main() {
     await tester.pumpWidget(
       FirePinApp(services: fakeServices(permissions: permissions)),
     );
-    await tapLabel(tester, 'ابدأ التحقق');
+    await tester.pump();
+    await tapLabel(tester, 'إنشاء حساب جديد');
     await tapLabel(tester, 'السماح باستخدام الكاميرا');
     expect(find.byType(CameraPermissionScreen), findsOneWidget);
     expect(find.byType(IdentityCaptureScreen), findsNothing);
@@ -111,6 +117,38 @@ void main() {
     await tapLabel(tester, 'السماح باستخدام الكاميرا');
     await tapLabel(tester, 'فتح إعدادات التطبيق');
     expect(permissions.settingsOpened, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('valid phone bypasses OTP and Back returns from PIN to phone', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final otp = TrackingOtpService();
+    await tester.pumpWidget(FirePinApp(services: fakeServices(otp: otp)));
+    await toPhoneNumber(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('phone-number')),
+      '٠٥٩١٢٣٤٥٦٧',
+    );
+    await tapLabel(tester, 'متابعة');
+    expect(find.byType(PinScreen), findsOneWidget);
+    expect(find.byType(OtpScreen), findsNothing);
+    expect(find.byType(PhoneSuccessScreen), findsNothing);
+    expect(otp.sends, 0);
+    expect(otp.verifications, 0);
+
+    await tester.tap(find.byKey(const ValueKey('onboarding-back')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byType(PhoneNumberScreen), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('phone-number')))
+          .controller!
+          .text,
+      '0591234567',
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -151,6 +189,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(reports.submissions, 1);
       expect(reports.hasPhoto, isTrue);
+      expect(find.text('تأكيد رمز الدخول'), findsNothing);
       expect(location.requests, 2);
       expect(find.byType(HomeScreen), findsOneWidget);
       expect(
@@ -165,7 +204,7 @@ void main() {
   );
 
   testWidgets(
-    'volunteer can return to selection and pending cannot reach Home',
+    'volunteer can return to selection and pending retains citizen access',
     (tester) async {
       mobileSize(tester);
       await tester.pumpWidget(FirePinApp(services: fakeServices()));
@@ -173,18 +212,17 @@ void main() {
       await tapLabel(tester, 'تقديم طلب للانضمام كمتطوع');
       await tapLabel(tester, 'متابعة');
       expect(find.byType(VolunteerWarningScreen), findsOneWidget);
-      await tapLabel(tester, 'العودة');
+      await tester.tap(find.byKey(const ValueKey('onboarding-back')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
       expect(find.byType(RoleSelectionScreen), findsOneWidget);
       await tapLabel(tester, 'متابعة');
       await tapLabel(tester, 'تأكيد وإرسال طلب التطوع');
       await tester.pump(const Duration(milliseconds: 700));
       await tester.pump(const Duration(milliseconds: 350));
-      expect(find.byType(VolunteerPendingScreen), findsOneWidget);
-      expect(find.byType(HomeScreen), findsNothing);
-      await tester.binding.handlePopRoute();
-      await tester.pump(const Duration(milliseconds: 350));
-      expect(find.byType(VolunteerPendingScreen), findsOneWidget);
-      expect(find.byType(HomeScreen), findsNothing);
+      expect(find.byType(HomeScreen), findsOneWidget);
+      await tapLabel(tester, 'الحساب');
+      expect(find.textContaining('طلب تطوع قيد المراجعة'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );
@@ -239,7 +277,8 @@ void main() {
     tester.platformDispatcher.textScaleFactorTestValue = 1.5;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     await tester.pumpWidget(FirePinApp(services: fakeServices()));
-    await tapLabel(tester, 'ابدأ التحقق');
+    await tester.pump();
+    await tapLabel(tester, 'إنشاء حساب جديد');
     expect(find.byType(CameraPermissionScreen), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -255,17 +294,14 @@ void main() {
         MaterialApp(
           home: Directionality(
             textDirection: TextDirection.rtl,
-            child: PhoneNumberScreen(
-              otp: fakeServices().otp,
-              onSent: (phone) => sentPhone = phone,
-            ),
+            child: PhoneNumberScreen(onContinue: (phone) => sentPhone = phone),
           ),
         ),
       );
       final input = find.byKey(const ValueKey('phone-number'));
       await tester.ensureVisible(input);
       await tester.enterText(input, '٠٥٩١٢٣٤٥٦٧');
-      await tapLabel(tester, 'إرسال رمز التحقق');
+      await tapLabel(tester, 'متابعة');
       expect(sentPhone, '0591234567');
       expect(tester.takeException(), isNull);
     },
@@ -357,24 +393,29 @@ void main() {
   });
 
   testWidgets(
-    'report without photo works after camera denial, but requires GPS',
+    'no-photo report requires the correct PIN before location and submission',
     (tester) async {
       mobileSize(tester);
       final location = FakeLocation()..failure = LocationProblem.denied;
       final reports = FakeReports();
       var submitted = false;
+      final services = fakeServices(
+        permissions: FakePermissions(result: DevicePermission.denied),
+        location: location,
+        reports: reports,
+      );
+      await services.authController.loginUser(
+        DemoAuthRepository.citizenNationalId,
+        DemoAuthRepository.citizenPin,
+      );
       await tester.pumpWidget(
         MaterialApp(
           home: Directionality(
             textDirection: TextDirection.rtl,
             child: FireCameraScreen(
-              services: fakeServices(
-                permissions: FakePermissions(result: DevicePermission.denied),
-                location: location,
-                reports: reports,
-              ),
+              services: services,
               session: OnboardingSession(),
-              onSubmitted: () => submitted = true,
+              onSubmitted: (_) => submitted = true,
               onClose: () {},
             ),
           ),
@@ -382,14 +423,319 @@ void main() {
       );
       await tester.pump();
       await tapLabel(tester, 'إرسال البلاغ بدون صورة');
+      expect(find.text('تأكيد رمز الدخول'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('رمز تأكيد البلاغ')))
+            .obscureText,
+        isTrue,
+      );
+      expect(reports.submissions, 0);
+      expect(location.requests, 0);
+      expect(submitted, isFalse);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('رمز تأكيد البلاغ')),
+        '9999',
+      );
+      await tapLabel(tester, 'تأكيد الإرسال');
+      expect(find.text('رمز الدخول غير صحيح. حاول مجددًا.'), findsOneWidget);
+      expect(reports.submissions, 0);
+      expect(location.requests, 0);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('رمز تأكيد البلاغ')),
+        DemoAuthRepository.citizenPin,
+      );
+      await tapLabel(tester, 'تأكيد الإرسال');
       expect(reports.submissions, 0);
       expect(submitted, isFalse);
+      expect(location.requests, 1);
+
       location.failure = null;
       await tapLabel(tester, 'إرسال البلاغ بدون صورة');
+      await tester.enterText(
+        find.byKey(const ValueKey('رمز تأكيد البلاغ')),
+        DemoAuthRepository.citizenPin,
+      );
+      await tapLabel(tester, 'تأكيد الإرسال');
       expect(reports.submissions, 1);
       expect(reports.hasPhoto, isFalse);
       expect(submitted, isTrue);
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'citizen alerts, acknowledgement and account are distinct views',
+    (tester) async {
+      mobileSize(tester);
+      final session = OnboardingSession()
+        ..role = UsageRole.citizen
+        ..phone = '0591234567';
+      final incidents = IncidentController()
+        ..report(
+          location: const LocationFix(31.78, 35.24, 10),
+          reporterPhone: '0590000000',
+          photo: testPhoto,
+        );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Directionality(
+            textDirection: TextDirection.rtl,
+            child: HomeScreen(
+              hasLocation: true,
+              onReport: () {},
+              session: session,
+              incidentController: incidents,
+            ),
+          ),
+        ),
+      );
+      await tapLabel(tester, 'التنبيهات');
+      expect(find.byType(AlertsScreen), findsOneWidget);
+      expect(find.textContaining('حادث نشط الآن'), findsOneWidget);
+      await tapLabel(tester, 'عرض على الخريطة');
+      expect(find.byType(IncidentScreen), findsOneWidget);
+      expect(find.text('تنبيه حريق قريب'), findsOneWidget);
+      await tapLabel(tester, 'تم الاطلاع');
+      expect(find.text('تم إيقاف التنبيه'), findsOneWidget);
+      await tapLabel(tester, 'الحساب');
+      expect(find.byType(AccountScreen), findsOneWidget);
+      expect(find.text('استخدام التطبيق كمواطن'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('volunteer call advances to active response', (tester) async {
+    mobileSize(tester);
+    final session = OnboardingSession()
+      ..accountId = 'volunteer-a'
+      ..role = UsageRole.volunteer;
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591234567',
+        photo: testPhoto,
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: session,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    await tapLabel(tester, 'التنبيهات');
+    expect(find.text('نداء حريق جديد'), findsWidgets);
+    await tapLabel(tester, 'عرض الحادث');
+    expect(find.text('نداء حريق جديد'), findsOneWidget);
+    await tapLabel(tester, 'تلبية النداء');
+    expect(find.text('أنت تستجيب لهذا البلاغ'), findsOneWidget);
+    expect(find.text('استجابة نشطة'), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
+    await tapLabel(tester, 'الحساب');
+    expect(find.text('✓ متطوع معتمد'), findsOneWidget);
+    expect(find.text('استجابة نشطة · أنت في الطريق'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('each volunteer can respond and sees only their own route', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591234567',
+        photo: testPhoto,
+      )
+      ..acceptByVolunteer(
+        volunteerId: 'volunteer-a',
+        displayName: 'المتطوع أ',
+        phone: '0591111111',
+      );
+    final volunteerB = OnboardingSession()
+      ..accountId = 'volunteer-b'
+      ..phone = '0592222222'
+      ..role = UsageRole.volunteer;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerB,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('نداء حريق جديد'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsNothing,
+    );
+
+    await tapLabel(tester, 'تلبية النداء');
+    expect(incidents.incident!.responderCount, 2);
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-location-volunteer-b')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsNothing,
+    );
+
+    final volunteerA = OnboardingSession()
+      ..accountId = 'volunteer-a'
+      ..phone = '0591111111'
+      ..role = UsageRole.volunteer;
+    await tester.pumpWidget(
+      MaterialApp(
+        key: const ValueKey('volunteer-a-view'),
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerA,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-location-volunteer-a')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('declining hides an incident only for that volunteer', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591234567',
+      )
+      ..acceptByVolunteer(volunteerId: 'volunteer-a');
+    final volunteerC = OnboardingSession()
+      ..accountId = 'volunteer-c'
+      ..role = UsageRole.volunteer;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerC,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+
+    await tapLabel(tester, 'تعذّر عليّ الاستجابة');
+    expect(incidents.incident!.isDeclinedFor('volunteer-c'), isTrue);
+    expect(incidents.incident!.hasResponded('volunteer-a'), isTrue);
+    expect(find.text('✓ متطوع معتمد'), findsOneWidget);
+
+    final volunteerB = OnboardingSession()
+      ..accountId = 'volunteer-b'
+      ..role = UsageRole.volunteer;
+    await tester.pumpWidget(
+      MaterialApp(
+        key: const ValueKey('volunteer-b-after-decline'),
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: volunteerB,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('تلبية النداء'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reporter sees responder count without volunteer routes', (
+    tester,
+  ) async {
+    mobileSize(tester);
+    final session = OnboardingSession()..phone = '0591234567';
+    final incidents = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: session.phone,
+        photo: testPhoto,
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: HomeScreen(
+            hasLocation: true,
+            onReport: () {},
+            session: session,
+            incidentController: incidents,
+          ),
+        ),
+      ),
+    );
+    expect(find.text('تم استلام البلاغ'), findsOneWidget);
+    expect(find.text('جارٍ البحث'), findsOneWidget);
+    incidents.acceptByVolunteer(volunteerId: 'volunteer-a');
+    incidents.acceptByVolunteer(volunteerId: 'volunteer-b');
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('استجاب 2 من المتطوعين'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-location-volunteer-a')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('volunteer-route-volunteer-b')),
+      findsNothing,
+    );
+    await tapLabel(tester, 'رؤية الصورة المرسلة');
+    expect(find.text('الصورة المرسلة'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -105,9 +105,17 @@ class BrandHeader extends StatelessWidget {
 /// A natural, scrollable column. Figma's top/bottom insets already include
 /// system chrome; use the larger of those and the device safe inset.
 class OnboardingPage extends StatelessWidget {
-  const OnboardingPage({super.key, required this.children, this.bottom = 40});
+  const OnboardingPage({
+    super.key,
+    required this.children,
+    this.bottom = 40,
+    this.onBack,
+    this.backEnabled = true,
+  });
   final List<Widget> children;
   final double bottom;
+  final VoidCallback? onBack;
+  final bool backEnabled;
   @override
   Widget build(BuildContext context) {
     final safe = MediaQuery.paddingOf(context);
@@ -127,10 +135,25 @@ class OnboardingPage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: BrandHeader(),
-                ),
+                if (onBack == null)
+                  const Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: BrandHeader(),
+                  )
+                else
+                  Row(
+                    children: [
+                      IconButton(
+                        key: const ValueKey('onboarding-back'),
+                        tooltip: 'رجوع',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: backEnabled ? onBack : null,
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+                      ),
+                      const SizedBox(width: 6),
+                      const BrandHeader(),
+                    ],
+                  ),
                 ...children,
               ],
             ),

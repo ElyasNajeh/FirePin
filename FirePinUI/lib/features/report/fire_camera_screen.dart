@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../app/app_services.dart';
 import '../../core/services/device_services.dart';
 import '../../core/ui/components.dart';
+import '../../core/ui/digit_input.dart';
 import '../../core/ui/live_camera.dart';
+import '../../core/ui/motion.dart';
 import '../../theme/app_theme.dart';
+import '../auth/auth_models.dart';
 import '../onboarding/onboarding_models.dart';
 
 /// Figma 77:2. Still photos only: no microphone or photo-library access.
@@ -18,7 +23,7 @@ class FireCameraScreen extends StatefulWidget {
   });
   final AppServices services;
   final OnboardingSession session;
-  final VoidCallback onSubmitted;
+  final FutureOr<void> Function(Uint8List? photo) onSubmitted;
   final VoidCallback onClose;
   @override
   State<FireCameraScreen> createState() => _FireCameraScreenState();
@@ -97,8 +102,9 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
         location: fix,
       );
       if (!mounted) return;
+      await widget.onSubmitted(withPhoto ? _image : null);
+      if (!mounted) return;
       HapticFeedback.mediumImpact();
-      widget.onSubmitted();
     } on LocationFailure catch (error) {
       if (mounted) {
         setState(() {
@@ -112,6 +118,20 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmAndSubmitWithoutPhoto() async {
+    if (_busy) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ReportPinDialog(
+        verifyPin: widget.services.authController.verifyCurrentUserPin,
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await _submit(withPhoto: false);
     }
   }
 
@@ -348,9 +368,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
                         ),
                       ),
                       TextButton(
-                        onPressed: _busy
-                            ? null
-                            : () => _submit(withPhoto: false),
+                        onPressed: _busy ? null : _confirmAndSubmitWithoutPhoto,
                         child: Text(
                           'إرسال البلاغ بدون صورة',
                           style:
@@ -374,6 +392,105 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       ),
     );
   }
+}
+
+class _ReportPinDialog extends StatefulWidget {
+  const _ReportPinDialog({required this.verifyPin});
+  final Future<bool> Function(String pin) verifyPin;
+
+  @override
+  State<_ReportPinDialog> createState() => _ReportPinDialogState();
+}
+
+class _ReportPinDialogState extends State<_ReportPinDialog> {
+  final _pin = TextEditingController();
+  bool _busy = false;
+  String? _error;
+  int _shake = 0;
+
+  Future<void> _confirm() async {
+    if (_busy) return;
+    if (!isValidLoginPin(_pin.text)) {
+      setState(() {
+        _error = 'أدخل رمز دخول مكوّنًا من 4 أرقام.';
+        _shake++;
+      });
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final accepted = await widget.verifyPin(_pin.text);
+      if (!mounted) return;
+      if (accepted) {
+        _pin.clear();
+        Navigator.of(context).pop(true);
+      } else {
+        _pin.clear();
+        setState(() {
+          _error = 'رمز الدخول غير صحيح. حاول مجددًا.';
+          _shake++;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        _pin.clear();
+        setState(() => _error = 'تعذّر التحقق من رمز الدخول. حاول مجددًا.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pin.clear();
+    _pin.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_busy,
+    child: AlertDialog(
+      title: Text('تأكيد رمز الدخول', style: AppType.section),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'أدخل رمز حسابك المكوّن من 4 أرقام لإرسال البلاغ بدون صورة.',
+            style: AppType.text(14, color: AppColors.textSecondary, height: 25),
+          ),
+          const SizedBox(height: 18),
+          Shake(
+            trigger: _shake,
+            child: DigitInput(
+              controller: _pin,
+              label: 'رمز تأكيد البلاغ',
+              length: 4,
+              obscure: true,
+              enabled: !_busy,
+            ),
+          ),
+          InlineMessage(_error),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          key: const ValueKey('confirm-no-photo-report'),
+          onPressed: _busy ? null : _confirm,
+          child: Text(_busy ? 'جارٍ التحقق' : 'تأكيد الإرسال'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _CameraPill extends StatelessWidget {

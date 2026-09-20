@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../app/app_services.dart';
 import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
+import '../auth/login_screens.dart';
 import '../home/home_screen.dart';
+import '../municipality/municipality_repository.dart';
 import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
@@ -13,6 +15,8 @@ import 'role_screens.dart';
 
 enum OnboardingStep {
   welcome,
+  userLogin,
+  municipalityLogin,
   cameraPermission,
   capture,
   identitySuccess,
@@ -60,6 +64,17 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   Widget _screen(OnboardingStep step) => switch (step) {
     OnboardingStep.welcome => WelcomeScreen(
       onStart: () => _go(OnboardingStep.cameraPermission),
+      onLogin: () => _go(OnboardingStep.userLogin),
+      onMunicipalityLogin: () => _go(OnboardingStep.municipalityLogin),
+    ),
+    OnboardingStep.userLogin => UserLoginScreen(
+      auth: widget.services.authController,
+      onBack: _back,
+      onCreateAccount: () => _go(OnboardingStep.cameraPermission),
+    ),
+    OnboardingStep.municipalityLogin => MunicipalityLoginScreen(
+      auth: widget.services.authController,
+      onBack: _back,
     ),
     OnboardingStep.cameraPermission => CameraPermissionScreen(
       permissions: widget.services.permissions,
@@ -68,10 +83,11 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.capture => IdentityCaptureScreen(
       services: widget.services,
+      onBack: _back,
       onVerified: (image, identity) {
         _session.identityImage = image;
         _session.identity = identity;
-        _go(OnboardingStep.identitySuccess, replace: true);
+        _go(OnboardingStep.identitySuccess);
       },
     ),
     OnboardingStep.identitySuccess => IdentitySuccessScreen(
@@ -80,13 +96,14 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     OnboardingStep.review => IdentityReviewScreen(
       identity: _session.identity!,
       image: _session.identityImage!,
+      onBack: _back,
       onContinue: () => _go(OnboardingStep.phone),
     ),
     OnboardingStep.phone => PhoneNumberScreen(
-      otp: widget.services.otp,
-      onSent: (phone) {
+      onBack: _back,
+      onContinue: (phone) {
         _session.phone = phone;
-        _go(OnboardingStep.otp);
+        _go(OnboardingStep.pin);
       },
     ),
     OnboardingStep.otp => OtpScreen(
@@ -99,10 +116,12 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.pin => PinScreen(
       session: _session,
-      onContinue: () => _go(OnboardingStep.location, replace: true),
+      onBack: _back,
+      onContinue: () => _go(OnboardingStep.location),
     ),
     OnboardingStep.location => LocationPermissionScreen(
       service: widget.services.location,
+      onBack: _back,
       onContinue: (fix) {
         _session.location = fix;
         _go(OnboardingStep.role);
@@ -110,11 +129,12 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.role => RoleSelectionScreen(
       initialRole: _session.role,
+      onBack: _back,
       onContinue: (role) {
         _session.role = role;
         switch (_session.destination) {
           case AccountDestination.home:
-            _go(OnboardingStep.home, clear: true);
+            _completeRegistration();
           case AccountDestination.volunteerWarning:
             _go(OnboardingStep.volunteerWarning);
           case AccountDestination.pendingApproval:
@@ -127,27 +147,71 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       onBack: _back,
       onSubmitted: (status) {
         _session.applicationStatus = status;
-        _go(OnboardingStep.pending, clear: true);
+
+        switch (_session.destination) {
+          case AccountDestination.home:
+            _completeRegistration();
+          case AccountDestination.pendingApproval:
+            final identity = _session.identity;
+            if (identity != null) {
+              widget.services.operations.submitApplication(
+                VolunteerApplicationRecord(
+                  id: 'local-application-${identity.identityNumber}',
+                  userId: 'local-${identity.identityNumber}',
+                  fullName: identity.fullName,
+                  nationalId: identity.identityNumber,
+                  phone: _session.phone,
+                  birthDate: identity.birthDate,
+                  requestedAt: DateTime.now(),
+                  status: ApplicationStatus.pending,
+                ),
+              );
+            }
+            _completeRegistration();
+          case AccountDestination.volunteerWarning:
+            _go(OnboardingStep.volunteerWarning);
+        }
       },
     ),
     OnboardingStep.pending => const VolunteerPendingScreen(),
     OnboardingStep.home => HomeScreen(
       hasLocation: _session.location != null,
       onReport: () => _go(OnboardingStep.fireCamera),
+      session: _session,
+      incidentController: widget.services.incidents,
     ),
     OnboardingStep.fireCamera => FireCameraScreen(
       services: widget.services,
       session: _session,
       onClose: _back,
-      onSubmitted: () {
-        _go(OnboardingStep.home, clear: true);
-        showFeedback(
-          context,
-          'تم تجهيز البلاغ بنجاح في النسخة التجريبية. لم يُرسل إلى الجهات المختصة.',
+      onSubmitted: (photo) async {
+        final submitted = await widget.services.incidents.report(
+          location: _session.location!,
+          reporterPhone: _session.phone,
+          reporterId: _session.participantId,
+          reporterName: _session.identity?.fullName,
+          reporterNationalId: _session.identity?.identityNumber,
+          photo: photo,
         );
+        if (!submitted) {
+          throw StateError('Shared demo incident creation failed.');
+        }
+        if (!mounted) return;
+        _go(OnboardingStep.home, clear: true);
       },
     ),
   };
+
+  Future<void> _completeRegistration() async {
+    try {
+      await widget.services.authController.completeRegistration(_session);
+    } on Object {
+      if (mounted) {
+        showFeedback(context, 'تعذّر حفظ الجلسة. حاول مجددًا.');
+      }
+    }
+  }
+
   @override
   void dispose() {
     _session.clearSensitiveData();

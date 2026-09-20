@@ -4,7 +4,7 @@ enum UsageRole { citizen, volunteer }
 
 enum AccountDestination { home, volunteerWarning, pendingApproval }
 
-enum ApplicationStatus { none, pending }
+enum ApplicationStatus { none, pending, approved, rejected }
 
 class IdentityData {
   const IdentityData({
@@ -62,6 +62,7 @@ bool isValidPhone(String input) {
 
 /// Ephemeral demo session. No storage, logging, or network serialization.
 class OnboardingSession {
+  String accountId = '';
   Uint8List? identityImage;
   IdentityData? identity;
   String phone = '';
@@ -70,6 +71,17 @@ class OnboardingSession {
   ApplicationStatus applicationStatus = ApplicationStatus.none;
   String? _pin;
   bool get hasPin => _pin != null;
+  String? get pinForRegistration => _pin;
+
+  String get participantId {
+    if (accountId.trim().isNotEmpty) return accountId.trim();
+    final nationalId = identity?.identityNumber.trim();
+    if (nationalId != null && nationalId.isNotEmpty) {
+      return 'national-$nationalId';
+    }
+    if (phone.trim().isNotEmpty) return 'phone-${normalizePhone(phone)}';
+    return 'local-session-${identityHashCode(this)}';
+  }
 
   bool savePin(String pin, String confirmation) {
     if (confirmPin(pin, confirmation) != PinConfirmation.confirmed) {
@@ -80,15 +92,23 @@ class OnboardingSession {
   }
 
   AccountDestination get destination {
+    if (role == UsageRole.citizen) {
+      return AccountDestination.home;
+    }
+
+    if (applicationStatus == ApplicationStatus.approved) {
+      return AccountDestination.home;
+    }
+
     if (applicationStatus == ApplicationStatus.pending) {
       return AccountDestination.pendingApproval;
     }
-    return role == UsageRole.citizen
-        ? AccountDestination.home
-        : AccountDestination.volunteerWarning;
+
+    return AccountDestination.volunteerWarning;
   }
 
   void clearSensitiveData() {
+    accountId = '';
     identityImage = null;
     identity = null;
     phone = '';

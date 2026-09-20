@@ -12,9 +12,11 @@ class RoleSelectionScreen extends StatefulWidget {
     super.key,
     required this.onContinue,
     this.initialRole = UsageRole.citizen,
+    this.onBack,
   });
   final ValueChanged<UsageRole> onContinue;
   final UsageRole initialRole;
+  final VoidCallback? onBack;
   @override
   State<RoleSelectionScreen> createState() => _RoleSelectionScreenState();
 }
@@ -29,6 +31,7 @@ class _RoleSelectionScreenState extends State<RoleSelectionScreen> {
 
   @override
   Widget build(BuildContext context) => OnboardingPage(
+    onBack: widget.onBack,
     children: [
       const SizedBox(height: 44),
       const PageTitle('كيف تريد استخدام التطبيق؟', size: 25),
@@ -188,6 +191,8 @@ class _VolunteerWarningScreenState extends State<VolunteerWarningScreen> {
   Widget build(BuildContext context) => PopScope(
     canPop: !_busy,
     child: OnboardingPage(
+      onBack: widget.onBack,
+      backEnabled: !_busy,
       children: [
         const SizedBox(height: 36),
         const Align(
@@ -223,12 +228,6 @@ class _VolunteerWarningScreenState extends State<VolunteerWarningScreen> {
           _busy ? 'جارٍ إرسال الطلب' : 'تأكيد وإرسال طلب التطوع',
           busy: _busy,
           onPressed: _submit,
-        ),
-        const SizedBox(height: 12),
-        AppButton(
-          'العودة',
-          secondary: true,
-          onPressed: _busy ? null : widget.onBack,
         ),
       ],
     ),

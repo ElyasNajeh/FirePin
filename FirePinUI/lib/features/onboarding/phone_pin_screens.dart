@@ -9,20 +9,18 @@ import 'onboarding_services.dart';
 
 /// Figma 109:48.
 class PhoneNumberScreen extends StatefulWidget {
-  const PhoneNumberScreen({super.key, required this.otp, required this.onSent});
-  final OtpService otp;
-  final ValueChanged<String> onSent;
+  const PhoneNumberScreen({super.key, required this.onContinue, this.onBack});
+  final ValueChanged<String> onContinue;
+  final VoidCallback? onBack;
   @override
   State<PhoneNumberScreen> createState() => _PhoneNumberScreenState();
 }
 
 class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
   final _phone = TextEditingController();
-  bool _busy = false;
   String? _error;
   int _shake = 0;
-  Future<void> _submit() async {
-    if (_busy) return;
+  void _submit() {
     if (!isValidPhone(_phone.text)) {
       setState(() {
         _error = 'أدخل رقمًا صحيحًا مثل 0591234567 أو رقمًا مع رمز الدولة.';
@@ -30,21 +28,9 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
       });
       return;
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
     final phone = normalizePhone(_phone.text);
-    try {
-      await widget.otp.send(phone);
-      if (!mounted) return;
-      FocusScope.of(context).unfocus();
-      widget.onSent(phone);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'تعذّر إرسال الرمز. حاول مرة أخرى.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    FocusScope.of(context).unfocus();
+    widget.onContinue(phone);
   }
 
   @override
@@ -55,6 +41,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
 
   @override
   Widget build(BuildContext context) => OnboardingPage(
+    onBack: widget.onBack,
     children: [
       const SizedBox(height: 34),
       const IllustrationBadge('phone'),
@@ -62,7 +49,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
       const PageTitle('أدخل رقم هاتفك'),
       const SizedBox(height: 6),
       const CopyBlock(
-        'سنرسل رمز تحقق عبر رسالة SMS إلى هذا الرقم.',
+        'سنستخدم هذا الرقم للتواصل معك وربطه بحسابك.',
         minHeight: 56,
       ),
       const SizedBox(height: 36),
@@ -76,9 +63,8 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
         child: TextField(
           key: const ValueKey('phone-number'),
           controller: _phone,
-          enabled: !_busy,
           keyboardType: TextInputType.phone,
-          textInputAction: TextInputAction.send,
+          textInputAction: TextInputAction.next,
           textDirection: TextDirection.ltr,
           textAlign: TextAlign.right,
           autofillHints: const [AutofillHints.telephoneNumber],
@@ -103,11 +89,7 @@ class _PhoneNumberScreenState extends State<PhoneNumberScreen> {
       ),
       InlineMessage(_error),
       SizedBox(height: MediaQuery.viewInsetsOf(context).bottom > 0 ? 28 : 216),
-      AppButton(
-        _busy ? 'جارٍ إرسال الرمز' : 'إرسال رمز التحقق',
-        onPressed: _submit,
-        busy: _busy,
-      ),
+      AppButton('متابعة', onPressed: _submit),
     ],
   );
 }
@@ -289,9 +271,15 @@ class PhoneSuccessScreen extends StatelessWidget {
 
 /// Figma 110:2. PIN values exist in memory only and are never logged.
 class PinScreen extends StatefulWidget {
-  const PinScreen({super.key, required this.session, required this.onContinue});
+  const PinScreen({
+    super.key,
+    required this.session,
+    required this.onContinue,
+    this.onBack,
+  });
   final OnboardingSession session;
   final VoidCallback onContinue;
+  final VoidCallback? onBack;
   @override
   State<PinScreen> createState() => _PinScreenState();
 }
@@ -333,6 +321,7 @@ class _PinScreenState extends State<PinScreen> {
 
   @override
   Widget build(BuildContext context) => OnboardingPage(
+    onBack: widget.onBack,
     children: [
       const SizedBox(height: 42),
       const PageTitle('أنشئ رمز الدخول'),

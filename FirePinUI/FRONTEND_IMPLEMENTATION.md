@@ -1,7 +1,67 @@
 # FirePin / شباب البلد frontend
 
-Frontend-only implementation on `feat/frontend-foundation`. No commits or pushes.
+Frontend-only implementation on `feat/complete-figma-frontend`. No commits or pushes
+were performed for the auth and municipality-dashboard phase.
 All paths below are relative to `FirePinUI/`.
+
+## Authentication, persistence, and municipality operations
+
+The app now starts through an asynchronous authentication gate backed by
+`SessionRepository`. Production startup uses `flutter_secure_storage`; tests use an
+in-memory implementation. Only principal type, account ID, and refresh-token-style
+session data are persisted. Raw PINs and municipality passwords are never persisted
+or logged. Logout clears persisted and in-memory session state.
+
+Normal users share one Arabic login using a 9-digit national ID and an exact
+4-digit PIN. Role selection is not shown after login: an approved volunteer
+membership resolves to the volunteer experience; all other users enter the citizen
+experience. Pending applicants retain citizen functionality and see their pending
+status in Account. Accepted applications create an approved volunteer membership;
+rejected users remain citizens.
+
+Municipalities use a separate email/password login and persistent municipality
+session. The responsive dashboard uses a wide sidebar and compact mobile drawer,
+with these sections:
+
+- overview metrics, operational map, and active summary;
+- active fire reports with status, reporter, image, responder, map, and timeline;
+- volunteer applications with pending/accepted/rejected filters and accept/reject;
+- approved volunteers with derived available/in-response state;
+- resolved incident history kept separate from active work;
+- municipality profile and functional logout.
+
+`LocalMunicipalityRepository` and the shared `IncidentController` provide one local
+application story. A citizen-created incident becomes visible to municipality UI;
+volunteer claim/resolve changes are observed by that same repository. Application
+decisions also drive future user role resolution. These interfaces are deliberately
+small so REST/realtime adapters can replace local data without rebuilding screens.
+
+### Backend alignment and known integration gaps
+
+Aligned concepts are users, access/refresh session architecture, separate
+municipality sessions, volunteer application lifecycle, approved volunteer
+membership, fire-report assignment/resolution, and report images.
+
+Known product/backend integration boundaries:
+
+1. The product login is `national_id + 4-digit PIN`; the current backend login is
+   `phone + PIN`. `AuthRepository.loginUser` isolates this difference and currently
+   uses demo data.
+2. Product PIN validation is exactly four digits even though the current backend
+   validator may permit more.
+3. Volunteer live location and the green route use local/demo coordinates until a
+   realtime backend contract is available.
+4. Nearby-citizen acknowledgement remains local and needs backend persistence for
+   cross-session behavior.
+5. Volunteer response withdrawal remains behind the incident boundary and needs a
+   matching backend operation if it is to persist.
+6. Incident timelines are derived from available local state/timestamps; complete
+   durable history requires backend event persistence.
+
+Demo credentials are isolated in `auth_repositories.dart`: citizen
+`123456789 / 1234`, approved volunteer `987654321 / 4321`, pending applicant
+`111222333 / 1234`, and municipality
+`municipality@firepin.ps / firepin-demo`.
 
 ## Implemented flow
 
@@ -11,12 +71,15 @@ six-digit OTP → phone success → create/confirm four-digit PIN → native loc
 permission/current position → citizen/volunteer selection.
 
 - Citizen continues to Home, then the real fire-report camera.
-- Volunteer continues through confirmation to pending council approval. Pending
-  has no Home access; navigation history cannot bypass that state.
+- Volunteer continues through confirmation to pending council approval. On later
+  login/session restoration, a pending applicant uses FirePin as a citizen while
+  the account displays the pending status.
 - Fire reporting supports a camera capture or no photo, obtains a current
-  location, simulates submission locally, then returns to Home with feedback
-  explicitly stating that nothing was sent to the authorities.
-- Normal login, municipality login, account, and alerts are local placeholders.
+  location, and creates one local incident shared by the reporter, nearby-citizen,
+  volunteer, alerts, map, and account views. The demo lifecycle covers waiting,
+  volunteer acceptance/en-route, acknowledgment, withdrawal, and resolution.
+- Account and alerts are role-aware. User and municipality login are functional
+  through replaceable frontend repositories.
 
 This is an interactive frontend development build, **not an operational identity
 verification or emergency-reporting system**.
@@ -73,9 +136,11 @@ There is no runtime font download or typography package.
 ## Architecture and mock boundaries
 
 `main.dart` only initializes Flutter/system chrome and starts `FirePinApp`.
-`AppServices` injects narrow service interfaces. A basic nested Navigator and
-short native page routes own one in-memory `OnboardingSession`. No routing or
-state-management package was added.
+`AppServices` injects narrow service/repository interfaces. `AuthController` owns
+the startup gate and authenticated principal; the onboarding Navigator still owns
+only its temporary `OnboardingSession`. User and municipality product shells are
+selected from restored authentication state. No routing or state-management package
+was added.
 
 The following replaceable mocks live in
 `lib/features/onboarding/onboarding_services.dart`:
@@ -89,14 +154,16 @@ The following replaceable mocks live in
 - `MockFireReportService`: sends no image, location, notification, or emergency
   report. It only simulates completion.
 
-Future backend work must replace those implementations and define real session,
-authentication/PIN, verification, consent, approval, and report-delivery contracts.
-There is no invented client-side authenticity or server-authentication algorithm.
+Demo auth adapters live in `lib/features/auth/auth_repositories.dart`; secure
+session persistence and UI do not depend on those concrete adapters. Future backend
+work must replace the demo auth and local operations implementations and connect
+verification, consent, approval, and report delivery. There is no invented
+client-side authenticity or server-authentication algorithm.
 
 The PIN is private session memory only, never logged or persisted. Identity
 images and coordinates are session-only. Native camera cache files are deleted
-after their bytes are read; the app does not save to the gallery. A process
-restart intentionally returns to onboarding; there is no durable account yet.
+after their bytes are read; the app does not save to the gallery. A process restart
+restores a valid user or municipality session through the startup gate.
 
 ## Real device functionality and permissions
 
@@ -153,6 +220,10 @@ were refreshed by Flutter; no desktop UI was implemented.
 FRONTEND_IMPLEMENTATION.md
 ios/Podfile
 lib/app/app_services.dart
+lib/features/auth/auth_controller.dart
+lib/features/auth/auth_models.dart
+lib/features/auth/auth_repositories.dart
+lib/features/auth/login_screens.dart
 lib/core/services/camera_service.dart
 lib/core/services/device_services.dart
 lib/core/ui/components.dart
@@ -160,6 +231,8 @@ lib/core/ui/digit_input.dart
 lib/core/ui/live_camera.dart
 lib/core/ui/motion.dart
 lib/features/home/home_screen.dart
+lib/features/municipality/municipality_dashboard.dart
+lib/features/municipality/municipality_repository.dart
 lib/features/onboarding/identity_screens.dart
 lib/features/onboarding/onboarding_flow.dart
 lib/features/onboarding/onboarding_models.dart
@@ -169,6 +242,8 @@ lib/features/onboarding/phone_pin_screens.dart
 lib/features/onboarding/role_screens.dart
 lib/features/report/fire_camera_screen.dart
 test/onboarding_services_test.dart
+test/auth_dashboard_widget_test.dart
+test/auth_session_test.dart
 test/screen_layout_test.dart
 test/test_fakes.dart
 assets/fonts/Cairo.ttf
@@ -245,7 +320,7 @@ Final automated results:
 
 - `dart format lib test`: passed; 26 Dart files formatted, no remaining changes.
 - `flutter analyze`: passed, no issues found.
-- `flutter test`: passed, all 20 tests.
+- `flutter test`: passed, all 25 tests.
 - `git diff --check`: passed, no whitespace errors.
 - `flutter build apk --debug --no-pub`: passed.
 - Android manifest and iOS plist: parsed successfully as XML.
@@ -283,8 +358,9 @@ The tests use fake permission/camera/location services, never physical devices.
 They cover OTP acceptance/rejection/resend, PIN confirmation and retry, Arabic
 digits/phone validation, both complete onboarding branches, pending-state access
 restriction, camera denial/settings/lifecycle, location denial/settings/skip,
-camera and no-photo reporting, small-screen keyboard interaction, and all 16
-visual states at reference and accessible small-device sizes.
+camera and no-photo reporting, the shared incident lifecycle, role-specific
+alerts/accounts, photo preview, small-screen keyboard interaction, and all
+onboarding plus incident visual states at reference and accessible sizes.
 
 iOS native build/runtime validation is not available in this Windows workspace.
 Known Gradle/AGP/Kotlin deprecation warnings were left untouched.

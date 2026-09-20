@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:firepin_ui/features/home/home_screen.dart';
+import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/permission_screens.dart';
@@ -35,6 +36,23 @@ void main() {
     gender: 'ذكر',
     address: 'القدس — الطور',
   );
+  IncidentController demoIncident({bool accepted = false}) {
+    final controller = IncidentController()
+      ..report(
+        location: const LocationFix(31.78, 35.24, 10),
+        reporterPhone: '0591111111',
+        photo: testPhoto,
+      );
+    if (accepted) {
+      controller.acceptByVolunteer(
+        volunteerId: 'user-volunteer',
+        displayName: 'ليان أحمد صالح',
+        phone: '0592223344',
+      );
+    }
+    return controller;
+  }
+
   final pages = <String, Widget Function()>{
     '01_welcome': () => WelcomeScreen(onStart: () {}),
     '02_camera_permission': () => CameraPermissionScreen(
@@ -42,27 +60,34 @@ void main() {
       onGranted: () {},
       onBack: () {},
     ),
-    '03_identity_camera': () =>
-        IdentityCaptureScreen(services: services, onVerified: (_, _) {}),
+    '03_identity_camera': () => IdentityCaptureScreen(
+      services: services,
+      onVerified: (_, _) {},
+      onBack: () {},
+    ),
     '04_identity_success': () => IdentitySuccessScreen(onContinue: () {}),
     '05_identity_review': () => IdentityReviewScreen(
       identity: identity,
       image: testPhoto,
       onContinue: () {},
+      onBack: () {},
     ),
-    '06_phone': () => PhoneNumberScreen(otp: services.otp, onSent: (_) {}),
+    '06_phone': () => PhoneNumberScreen(onContinue: (_) {}, onBack: () {}),
     '07_otp': () =>
         OtpScreen(otp: services.otp, phone: '059 123 4567', onVerified: () {}),
     '08_phone_success': () => PhoneSuccessScreen(onContinue: () {}),
-    '09_pin': () => PinScreen(session: session, onContinue: () {}),
+    '09_pin': () =>
+        PinScreen(session: session, onContinue: () {}, onBack: () {}),
     '10_location': () => LocationPermissionScreen(
       service: services.location,
       onContinue: (_) {},
+      onBack: () {},
     ),
-    '11_citizen': () => RoleSelectionScreen(onContinue: (_) {}),
+    '11_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
     '12_volunteer': () => RoleSelectionScreen(
       initialRole: UsageRole.volunteer,
       onContinue: (_) {},
+      onBack: () {},
     ),
     '13_warning': () => VolunteerWarningScreen(
       service: services.volunteer,
@@ -71,10 +96,29 @@ void main() {
     ),
     '14_pending': () => const VolunteerPendingScreen(),
     '15_home': () => HomeScreen(hasLocation: true, onReport: () {}),
+    '17_nearby_alert': () => HomeScreen(
+      hasLocation: true,
+      onReport: () {},
+      incidentController: demoIncident(),
+    ),
+    '18_reporter_en_route': () => HomeScreen(
+      hasLocation: true,
+      onReport: () {},
+      session: OnboardingSession()..phone = '0591111111',
+      incidentController: demoIncident(accepted: true),
+    ),
+    '19_volunteer_route': () => HomeScreen(
+      hasLocation: true,
+      onReport: () {},
+      session: OnboardingSession()
+        ..accountId = 'user-volunteer'
+        ..role = UsageRole.volunteer,
+      incidentController: demoIncident(accepted: true),
+    ),
     '16_fire_camera': () => FireCameraScreen(
       services: services,
       session: session,
-      onSubmitted: () {},
+      onSubmitted: (_) {},
       onClose: () {},
     ),
   };
