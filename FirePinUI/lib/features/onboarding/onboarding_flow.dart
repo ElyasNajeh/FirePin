@@ -8,6 +8,7 @@ import '../municipality/municipality_repository.dart';
 import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
+import 'municipality_selection_screen.dart';
 import 'onboarding_models.dart';
 import 'permission_screens.dart';
 import 'phone_pin_screens.dart';
@@ -27,6 +28,7 @@ enum OnboardingStep {
   pin,
   location,
   role,
+  municipalitySelection,
   volunteerWarning,
   pending,
   home,
@@ -136,10 +138,22 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
           case AccountDestination.home:
             _completeRegistration();
           case AccountDestination.volunteerWarning:
-            _go(OnboardingStep.volunteerWarning);
+            _go(OnboardingStep.municipalitySelection);
           case AccountDestination.pendingApproval:
             _go(OnboardingStep.pending, clear: true);
         }
+      },
+    ),
+    OnboardingStep.municipalitySelection => MunicipalitySelectionScreen(
+      repository: widget.services.municipalityDirectory,
+      initialMunicipalityId: _session.municipalityId,
+      onBack: _back,
+      onContinue: (municipality) {
+        _session.selectMunicipality(
+          id: municipality.id,
+          name: municipality.name,
+        );
+        _go(OnboardingStep.volunteerWarning);
       },
     ),
     OnboardingStep.volunteerWarning => VolunteerWarningScreen(

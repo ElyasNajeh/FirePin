@@ -1,7 +1,95 @@
 import 'package:flutter/foundation.dart';
 
+import '../../core/network/api_client.dart';
 import '../incidents/incident_controller.dart';
 import '../onboarding/onboarding_models.dart';
+
+class MunicipalityDirectoryEntry {
+  const MunicipalityDirectoryEntry({
+    required this.id,
+    required this.name,
+    required this.latitude,
+    required this.longitude,
+  });
+
+  final int id;
+  final String name;
+  final double latitude;
+  final double longitude;
+}
+
+abstract interface class MunicipalityDirectoryRepository {
+  Future<List<MunicipalityDirectoryEntry>> getActiveMunicipalities();
+}
+
+class ApiMunicipalityDirectoryRepository
+    implements MunicipalityDirectoryRepository {
+  ApiMunicipalityDirectoryRepository(this._api);
+
+  final ApiClient _api;
+
+  @override
+  Future<List<MunicipalityDirectoryEntry>> getActiveMunicipalities() async {
+    const limit = 100;
+    var page = 1;
+    var fetched = 0;
+    final municipalities = <MunicipalityDirectoryEntry>[];
+
+    while (true) {
+      final response = await _api.get<Map<String, dynamic>>(
+        '/municipalities',
+        queryParameters: {'is_active': true, 'page': page, 'limit': limit},
+      );
+      final data = response.data;
+      final items = data?['items'];
+      final total = data?['total'];
+      if (data == null || items is! List || total is! int) {
+        throw const FormatException('Invalid municipality directory response');
+      }
+
+      for (final item in items) {
+        final municipality = _municipalityMap(item);
+        if (municipality != null) {
+          municipalities.add(municipality);
+        }
+      }
+      fetched += items.length;
+
+      if (items.isEmpty || fetched >= total) {
+        return List.unmodifiable(municipalities);
+      }
+      page++;
+    }
+  }
+
+  MunicipalityDirectoryEntry? _municipalityMap(Object? value) {
+    if (value is! Map<String, dynamic> || value['is_active'] != true) {
+      return null;
+    }
+    final id = value['id'];
+    final name = value['name'];
+    final latitude = _coordinate(value['latitude']);
+    final longitude = _coordinate(value['longitude']);
+    if (id is! int ||
+        name is! String ||
+        latitude == null ||
+        longitude == null) {
+      throw const FormatException('Invalid municipality directory item');
+    }
+    return MunicipalityDirectoryEntry(
+      id: id,
+      name: name,
+      latitude: latitude,
+      longitude: longitude,
+    );
+  }
+
+  double? _coordinate(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+}
 
 class VolunteerApplicationRecord {
   const VolunteerApplicationRecord({

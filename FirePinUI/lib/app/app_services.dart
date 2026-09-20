@@ -27,6 +27,7 @@ class AppServices {
     SharedMockIncidentClient? sharedIncidents,
     Duration incidentPollInterval = const Duration(seconds: 1),
     MunicipalityRepository? operations,
+    MunicipalityDirectoryRepository? municipalityDirectory,
     AuthRepository? auth,
     MunicipalityAuthRepository? municipalityAuth,
     SessionRepository? sessions,
@@ -55,6 +56,8 @@ class AppServices {
     final baseUrl = resolveApiBaseUrl(override: apiBaseUrl);
     final userApi =
         userApiClient ?? ApiClient(baseUrl: baseUrl, tokenStorage: storage);
+    this.municipalityDirectory =
+        municipalityDirectory ?? ApiMunicipalityDirectoryRepository(userApi);
     final municipalityApi =
         municipalityApiClient ??
         ApiClient(
@@ -92,6 +95,7 @@ class AppServices {
   late final CameraSourceFactory camera;
   late final IncidentController incidents;
   late final MunicipalityRepository operations;
+  late final MunicipalityDirectoryRepository municipalityDirectory;
   late final SessionRepository sessions;
   late final FirePinNotificationService notifications;
   late final AuthController authController;

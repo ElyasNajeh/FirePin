@@ -98,6 +98,26 @@ class TrackingOtpService implements OtpService {
   }
 }
 
+class FakeMunicipalityDirectoryRepository
+    implements MunicipalityDirectoryRepository {
+  FakeMunicipalityDirectoryRepository({
+    this.municipalities = const [
+      MunicipalityDirectoryEntry(
+        id: 101,
+        name: 'بلدية القدس',
+        latitude: 31.78,
+        longitude: 35.24,
+      ),
+    ],
+  });
+
+  final List<MunicipalityDirectoryEntry> municipalities;
+
+  @override
+  Future<List<MunicipalityDirectoryEntry>> getActiveMunicipalities() async =>
+      municipalities;
+}
+
 AppServices fakeServices({
   FakePermissions? permissions,
   FakeLocation? location,
@@ -120,6 +140,7 @@ AppServices fakeServices({
     otp: otp ?? MockOtpService(delay: Duration.zero),
     incidents: incidents,
     operations: operations,
+    municipalityDirectory: FakeMunicipalityDirectoryRepository(),
     auth: DemoAuthRepository(operations),
     municipalityAuth: DemoMunicipalityAuthRepository(),
   );

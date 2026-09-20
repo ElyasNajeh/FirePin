@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:firepin_ui/features/home/home_screen.dart';
 import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
+import 'package:firepin_ui/features/onboarding/municipality_selection_screen.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/permission_screens.dart';
 import 'package:firepin_ui/features/onboarding/phone_pin_screens.dart';
@@ -86,6 +87,11 @@ void main() {
     '11_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
     '12_volunteer': () => RoleSelectionScreen(
       initialRole: UsageRole.volunteer,
+      onContinue: (_) {},
+      onBack: () {},
+    ),
+    '12a_municipality_selection': () => MunicipalitySelectionScreen(
+      repository: FakeMunicipalityDirectoryRepository(),
       onContinue: (_) {},
       onBack: () {},
     ),

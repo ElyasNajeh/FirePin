@@ -69,6 +69,8 @@ class OnboardingSession {
   LocationFix? location;
   UsageRole role = UsageRole.citizen;
   ApplicationStatus applicationStatus = ApplicationStatus.none;
+  int? municipalityId;
+  String? municipalityName;
   String? _pin;
   bool get hasPin => _pin != null;
   String? get pinForRegistration => _pin;
@@ -89,6 +91,11 @@ class OnboardingSession {
     }
     _pin = pin;
     return true;
+  }
+
+  void selectMunicipality({required int id, required String name}) {
+    municipalityId = id;
+    municipalityName = name;
   }
 
   AccountDestination get destination {
@@ -114,5 +121,7 @@ class OnboardingSession {
     phone = '';
     _pin = null;
     location = null;
+    municipalityId = null;
+    municipalityName = null;
   }
 }
