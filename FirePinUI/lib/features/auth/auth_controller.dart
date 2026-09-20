@@ -188,6 +188,14 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  Future<void> handleExpiredSession() async {
+    await _detachNotifications();
+    await _clearPersistedAuthentication();
+    _clearMemory();
+    _status = AuthStatus.signedOut;
+    notifyListeners();
+  }
+
   Future<void> _prepareForLogin() async {
     await _detachNotifications();
     await _clearPersistedAuthentication();

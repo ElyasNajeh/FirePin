@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../core/ui/components.dart';
 import '../../theme/app_theme.dart';
 import '../auth/auth_models.dart';
-import '../incidents/incident_controller.dart';
 import '../onboarding/onboarding_models.dart';
+import '../report/fire_report_repository.dart';
 import 'municipality_repository.dart';
 
 enum MunicipalitySection {
@@ -176,7 +178,7 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   );
 
   Widget _overview(bool wide) {
-    final incidents = widget.repository.incidents;
+    final incidents = widget.repository.reports;
     final active = incidents.where((item) => !item.isResolved).toList();
     final resolved = incidents.where((item) => item.isResolved).toList();
     final pending = widget.repository.applications
@@ -278,7 +280,7 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   }
 
   Widget _incidents({required bool resolved}) {
-    final items = widget.repository.incidents
+    final items = widget.repository.reports
         .where((item) => item.isResolved == resolved)
         .toList();
     if (items.isEmpty) return const _EmptyState('لا توجد بلاغات في هذا القسم.');
@@ -381,14 +383,12 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   }
 
   Widget _volunteers() {
-    final activeResponders = widget.repository.incidents
+    final activeResponders = widget.repository.reports
         .where((item) => !item.isResolved)
         .map((item) => item.assignedVolunteer)
-        .whereType<VolunteerResponse>()
+        .whereType<AssignedVolunteer>()
         .toList();
-    final activeIds = activeResponders
-        .map((response) => response.volunteerId)
-        .toSet();
+    final activeIds = activeResponders.map((response) => response.id).toSet();
     final activePhones = activeResponders
         .map((response) => response.phone)
         .toSet();
@@ -423,12 +423,12 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
                   ),
                 ),
                 _StatusBadge(
-                  activeIds.contains(volunteer.userId.toString()) ||
+                  activeIds.contains(volunteer.id) ||
                           activePhones.contains(volunteer.phone)
                       ? 'في استجابة'
                       : 'متاح',
                   warning:
-                      activeIds.contains(volunteer.userId.toString()) ||
+                      activeIds.contains(volunteer.id) ||
                       activePhones.contains(volunteer.phone),
                 ),
               ],
@@ -496,16 +496,16 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
     ),
   );
 
-  void _openIncident(MunicipalityIncidentRecord incident) {
+  void _openIncident(MunicipalityFireReport incident) {
     showDialog<void>(
       context: context,
       builder: (_) => AnimatedBuilder(
         animation: widget.repository,
         builder: (context, _) {
-          final current = widget.repository.incidents
+          final current = widget.repository.reports
               .where((item) => item.id == incident.id)
               .firstOrNull;
-          return _IncidentDetails(incident: current ?? incident);
+          return MunicipalityReportDetailsDialog(incident: current ?? incident);
         },
       ),
     );
@@ -548,83 +548,74 @@ class _StatCard extends StatelessWidget {
 
 class _OperationsMap extends StatelessWidget {
   const _OperationsMap({required this.incidents});
-  final List<MunicipalityIncidentRecord> incidents;
+  final List<MunicipalityFireReport> incidents;
 
   @override
-  Widget build(BuildContext context) => SurfaceCard(
-    padding: 0,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: SizedBox(
-        height: 330,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final size = Size(constraints.maxWidth, 330);
-            final visible = incidents.take(3).toList();
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                const FigmaIcon('basemap', fit: BoxFit.cover),
-                ..._fireMarkers(visible, size),
-                Positioned(
-                  top: 14,
-                  right: 14,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    color: Colors.white,
-                    child: Text(
-                      'خريطة البلاغات النشطة',
-                      style: AppType.caption,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
+  Widget build(BuildContext context) {
+    if (incidents.isEmpty) {
+      return SurfaceCard(
+        child: SizedBox(
+          height: 290,
+          child: Center(
+            child: Text('لا توجد بلاغات نشطة.', style: AppType.caption),
+          ),
         ),
-      ),
-    ),
-  );
-
-  List<Widget> _fireMarkers(
-    List<MunicipalityIncidentRecord> visible,
-    Size size,
-  ) => [
-    for (final (index, incident) in visible.indexed)
-      Positioned(
-        key: ValueKey('municipality-fire-${incident.id}'),
-        left: _firePosition(index, size).dx - 19,
-        top: _firePosition(index, size).dy - 19,
-        child: const CircleAvatar(
-          radius: 19,
-          backgroundColor: AppColors.emergency,
-          child: Icon(
-            Icons.local_fire_department,
-            color: Colors.white,
-            size: 20,
+      );
+    }
+    final points = [
+      for (final incident in incidents)
+        LatLng(incident.latitude, incident.longitude),
+    ];
+    final center = LatLng(
+      points.map((point) => point.latitude).reduce((a, b) => a + b) /
+          points.length,
+      points.map((point) => point.longitude).reduce((a, b) => a + b) /
+          points.length,
+    );
+    return SurfaceCard(
+      padding: 0,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          height: 330,
+          child: FlutterMap(
+            options: MapOptions(initialCenter: center, initialZoom: 13),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.firepin.firepin_ui',
+              ),
+              MarkerLayer(
+                markers: [
+                  for (final incident in incidents)
+                    Marker(
+                      key: ValueKey('municipality-fire-${incident.id}'),
+                      point: LatLng(incident.latitude, incident.longitude),
+                      width: 42,
+                      height: 42,
+                      child: const CircleAvatar(
+                        backgroundColor: AppColors.emergency,
+                        child: Icon(
+                          Icons.local_fire_department,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
-  ];
-
-  Offset _firePosition(int index, Size size) {
-    const positions = [
-      Offset(0.72, 0.30),
-      Offset(0.64, 0.55),
-      Offset(0.80, 0.72),
-    ];
-    final normalized = positions[index % positions.length];
-    return Offset(normalized.dx * size.width, normalized.dy * size.height);
+    );
   }
 }
 
 class _ActiveSummary extends StatelessWidget {
   const _ActiveSummary({required this.incidents, required this.onOpen});
-  final List<MunicipalityIncidentRecord> incidents;
-  final ValueChanged<MunicipalityIncidentRecord> onOpen;
+  final List<MunicipalityFireReport> incidents;
+  final ValueChanged<MunicipalityFireReport> onOpen;
   @override
   Widget build(BuildContext context) => SurfaceCard(
     child: Column(
@@ -643,9 +634,9 @@ class _ActiveSummary extends StatelessWidget {
                 Icons.local_fire_department,
                 color: AppColors.emergency,
               ),
-              title: Text(incident.id),
+              title: Text('#${incident.id}'),
               subtitle: Text(
-                '${_stage(incident.stage)} · ${_assignmentSummary(incident.assignedVolunteer)}\n${incident.locationLabel}',
+                '${_status(incident.status)} · ${_assignmentSummary(incident.assignedVolunteer)}\n${incident.locationLabel}',
               ),
               isThreeLine: true,
               trailing: const Icon(Icons.chevron_left),
@@ -659,7 +650,7 @@ class _ActiveSummary extends StatelessWidget {
 
 class _IncidentCard extends StatelessWidget {
   const _IncidentCard({required this.incident, required this.onOpen});
-  final MunicipalityIncidentRecord incident;
+  final MunicipalityFireReport incident;
   final VoidCallback onOpen;
   @override
   Widget build(BuildContext context) => SurfaceCard(
@@ -680,7 +671,7 @@ class _IncidentCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${incident.id} • ${_stage(incident.stage)}',
+                  '#${incident.id} • ${_status(incident.status)}',
                   style: AppType.section,
                 ),
                 Text(
@@ -693,8 +684,7 @@ class _IncidentCard extends StatelessWidget {
                 ),
                 if (incident.assignedVolunteer != null)
                   Text(
-                    incident.assignedVolunteer!.displayName ??
-                        incident.assignedVolunteer!.volunteerId,
+                    incident.assignedVolunteer!.fullName,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.caption,
@@ -702,7 +692,6 @@ class _IncidentCard extends StatelessWidget {
               ],
             ),
           ),
-          if (incident.photo != null) const Icon(Icons.image_outlined),
           const Icon(Icons.chevron_left),
         ],
       ),
@@ -710,9 +699,9 @@ class _IncidentCard extends StatelessWidget {
   );
 }
 
-class _IncidentDetails extends StatelessWidget {
-  const _IncidentDetails({required this.incident});
-  final MunicipalityIncidentRecord incident;
+class MunicipalityReportDetailsDialog extends StatelessWidget {
+  const MunicipalityReportDetailsDialog({super.key, required this.incident});
+  final MunicipalityFireReport incident;
   @override
   Widget build(BuildContext context) => Dialog(
     child: ConstrainedBox(
@@ -726,7 +715,7 @@ class _IncidentDetails extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'تفاصيل البلاغ ${incident.id}',
+                    'تفاصيل البلاغ #${incident.id}',
                     style: AppType.section,
                   ),
                 ),
@@ -737,7 +726,10 @@ class _IncidentDetails extends StatelessWidget {
                 ),
               ],
             ),
-            _StatusBadge(_stage(incident.stage), warning: !incident.isResolved),
+            _StatusBadge(
+              _status(incident.status),
+              warning: !incident.isResolved,
+            ),
             const SizedBox(height: 14),
             _OperationsMap(incidents: [incident]),
             const SizedBox(height: 14),
@@ -753,7 +745,7 @@ class _IncidentDetails extends StatelessWidget {
                 _Detail('الجهة المسؤولة', incident.municipalityName),
                 _Detail(
                   'المتطوع المعيّن',
-                  incident.assignedVolunteer?.displayName ?? 'غير معيّن',
+                  incident.assignedVolunteer?.fullName ?? 'غير معيّن',
                 ),
               ],
             ),
@@ -764,31 +756,6 @@ class _IncidentDetails extends StatelessWidget {
               Text('لم يتم تعيين متطوع بعد.', style: AppType.caption)
             else
               _ResponderCard(response: incident.assignedVolunteer!),
-            if (incident.photo != null) ...[
-              const SizedBox(height: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.memory(
-                  incident.photo!,
-                  height: 180,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ],
-            const SizedBox(height: 20),
-            Text('مسار الحالة', style: AppType.section),
-            const SizedBox(height: 8),
-            for (final event in incident.events)
-              ListTile(
-                dense: true,
-                leading: const Icon(
-                  Icons.check_circle,
-                  color: AppColors.primary,
-                  size: 20,
-                ),
-                title: Text(_stage(event.stage)),
-                subtitle: Text(_dateTime(event.at)),
-              ),
           ],
         ),
       ),
@@ -798,11 +765,11 @@ class _IncidentDetails extends StatelessWidget {
 
 class _ResponderCard extends StatelessWidget {
   const _ResponderCard({required this.response});
-  final VolunteerResponse response;
+  final AssignedVolunteer response;
 
   @override
   Widget build(BuildContext context) => Container(
-    key: ValueKey('municipality-responder-detail-${response.volunteerId}'),
+    key: ValueKey('municipality-responder-detail-${response.id}'),
     width: 210,
     padding: const EdgeInsets.all(12),
     decoration: BoxDecoration(
@@ -814,13 +781,13 @@ class _ResponderCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          response.displayName ?? response.volunteerId,
+          response.fullName,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppType.text(13, weight: FontWeight.w700),
         ),
-        if (response.phone?.isNotEmpty == true)
-          Text(response.phone!, style: AppType.caption),
+        if (response.phone.isNotEmpty)
+          Text(response.phone, style: AppType.caption),
         Text(
           'المتطوع المعيّن للبلاغ',
           style: AppType.text(11, color: AppColors.primary),
@@ -924,15 +891,13 @@ class _VolunteerDataError extends StatelessWidget {
   );
 }
 
-String _stage(IncidentStage stage) => switch (stage) {
-  IncidentStage.reported => 'تم استلام البلاغ',
-  IncidentStage.waitingForResponder => 'جارٍ البحث عن مستجيب',
-  IncidentStage.responderAccepted => 'تم تعيين متطوع',
-  IncidentStage.responderEnRoute => 'تم تعيين متطوع',
-  IncidentStage.resolved => 'تمت معالجة الحالة',
+String _status(FireReportStatus status) => switch (status) {
+  FireReportStatus.pending => 'جارٍ البحث عن مستجيب',
+  FireReportStatus.assigned => 'تم تعيين متطوع',
+  FireReportStatus.resolved => 'تمت معالجة الحالة',
 };
 
-String _assignmentSummary(VolunteerResponse? volunteer) =>
+String _assignmentSummary(AssignedVolunteer? volunteer) =>
     volunteer == null ? 'لم يتم تعيين متطوع' : 'تم تعيين متطوع';
 
 String _date(DateTime value) => '${value.day}/${value.month}/${value.year}';

@@ -20,7 +20,6 @@ void main() {
     expect(services.reportRepository, same(services.reports));
     services.authController.dispose();
     (services.operations as ChangeNotifier).dispose();
-    services.incidents.dispose();
   });
 
   test('one submission sends real GPS and PIN exactly once', () async {

@@ -1,7 +1,6 @@
 import 'package:firepin_ui/features/auth/auth_controller.dart';
 import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
-import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,7 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'test_fakes.dart';
 
 void main() {
-  late IncidentController incidents;
   late FakeMunicipalityOperationsRepository operations;
   late DemoAuthRepository users;
   late DemoMunicipalityAuthRepository municipalities;
@@ -17,10 +15,7 @@ void main() {
   late AuthController auth;
 
   setUp(() {
-    incidents = IncidentController();
-    operations = FakeMunicipalityOperationsRepository(
-      incidentController: incidents,
-    );
+    operations = FakeMunicipalityOperationsRepository();
     users = DemoAuthRepository(operations);
     municipalities = DemoMunicipalityAuthRepository();
     sessions = MemorySessionRepository();
@@ -33,7 +28,6 @@ void main() {
 
   tearDown(() {
     operations.dispose();
-    incidents.dispose();
     auth.dispose();
   });
 
@@ -219,8 +213,8 @@ void main() {
     },
   );
 
-  test('active and resolved incidents remain separated', () {
-    expect(operations.incidents.where((item) => !item.isResolved), isNotEmpty);
-    expect(operations.incidents.where((item) => item.isResolved), isNotEmpty);
+  test('active and resolved reports remain separated', () {
+    expect(operations.reports.where((item) => !item.isResolved), isNotEmpty);
+    expect(operations.reports.where((item) => item.isResolved), isNotEmpty);
   });
 }

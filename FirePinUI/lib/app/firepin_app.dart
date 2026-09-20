@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -10,7 +11,9 @@ import '../features/home/home_screen.dart';
 import '../features/municipality/municipality_dashboard.dart';
 import '../features/onboarding/onboarding_models.dart';
 import '../features/onboarding/volunteer_application_flow.dart';
+import '../features/report/fire_reports_screen.dart';
 import '../features/report/fire_camera_screen.dart';
+import '../core/network/api_client.dart';
 import '../theme/app_theme.dart';
 import 'app_services.dart';
 
@@ -26,38 +29,147 @@ class _FirePinAppState extends State<FirePinApp> {
   late final _services = widget.services ?? AppServices();
   bool _reporting = false;
   bool _applyingVolunteer = false;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+  final List<String> _pendingReportIds = [];
+  final Set<String> _queuedReportIds = {};
+  StreamSubscription<String>? _notificationTapSubscription;
+  String? _processingReportId;
+  String? _openReportId;
 
   @override
   void initState() {
     super.initState();
-    _services.authController.addListener(_syncIncidentPolling);
-    _syncIncidentPolling();
+    _services.authController.addListener(_scheduleNotificationNavigation);
+    _notificationTapSubscription = _services.notifications.reportTaps.listen(
+      _queueNotificationReport,
+    );
     unawaited(_services.authController.restore());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final initialReportId = _services.notifications.takeInitialReportId();
+      if (initialReportId != null) {
+        _queueNotificationReport(initialReportId);
+      } else {
+        _scheduleNotificationNavigation();
+      }
+    });
   }
 
-  void _syncIncidentPolling() {
-    if (_services.reportRepository != null) {
-      _services.incidents.stopPolling();
+  void _queueNotificationReport(String reportId) {
+    if (_processingReportId == reportId ||
+        _openReportId == reportId ||
+        !_queuedReportIds.add(reportId)) {
       return;
     }
-    switch (_services.authController.status) {
-      case AuthStatus.user || AuthStatus.municipality:
-        unawaited(_services.incidents.startPolling());
-      case AuthStatus.restoring || AuthStatus.signedOut:
-        _services.incidents.stopPolling();
+    _pendingReportIds.add(reportId);
+    _scheduleNotificationNavigation();
+  }
+
+  void _scheduleNotificationNavigation() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_openNextNotificationReport());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _openNextNotificationReport() async {
+    if (!mounted ||
+        _processingReportId != null ||
+        _openReportId != null ||
+        _pendingReportIds.isEmpty ||
+        _navigatorKey.currentState == null) {
+      return;
     }
+    final status = _services.authController.status;
+    if (status != AuthStatus.user && status != AuthStatus.municipality) {
+      return;
+    }
+
+    final reportIdText = _pendingReportIds.removeAt(0);
+    _queuedReportIds.remove(reportIdText);
+    _processingReportId = reportIdText;
+    final reportId = int.parse(reportIdText);
+    try {
+      final navigator = _navigatorKey.currentState!;
+      if (status == AuthStatus.user) {
+        final account = _services.authController.user!;
+        final volunteer = account.role == UsageRole.volunteer;
+        final repository = _services.reportRepository;
+        final report = volunteer
+            ? await repository.getVolunteerReport(reportId)
+            : await repository.getMyReport(reportId);
+        if (!mounted || _services.authController.status != AuthStatus.user) {
+          return;
+        }
+        _openReportId = reportIdText;
+        await navigator.push<void>(
+          MaterialPageRoute(
+            settings: RouteSettings(
+              name: '/notifications/fire-reports/$reportIdText',
+            ),
+            builder: (_) => FireReportDetailScreen(
+              report: report,
+              volunteer: volunteer,
+              repository: repository,
+              location: _services.location,
+              viewerUserId: account.id,
+            ),
+          ),
+        );
+      } else {
+        final report = await _services.operations.getReport(reportId);
+        if (!mounted ||
+            _services.authController.status != AuthStatus.municipality) {
+          return;
+        }
+        _openReportId = reportIdText;
+        await navigator.push<void>(
+          DialogRoute(
+            context: navigator.context,
+            settings: RouteSettings(
+              name: '/notifications/municipality/fire-reports/$reportIdText',
+            ),
+            builder: (_) => MunicipalityReportDetailsDialog(incident: report),
+          ),
+        );
+      }
+    } on AuthenticationException {
+      await _services.authController.handleExpiredSession();
+      _showNotificationError('انتهت الجلسة. سجّل الدخول لفتح البلاغ.');
+    } on DioException catch (error) {
+      final statusCode = error.response?.statusCode;
+      _showNotificationError(
+        statusCode == 403 || statusCode == 404
+            ? 'هذا البلاغ غير متاح للحساب الحالي.'
+            : 'تعذّر فتح البلاغ. تحقق من الاتصال وحاول مجددًا.',
+      );
+    } on Object {
+      _showNotificationError('تعذّر فتح البلاغ من الإشعار.');
+    } finally {
+      _processingReportId = null;
+      _openReportId = null;
+      _scheduleNotificationNavigation();
+    }
+  }
+
+  void _showNotificationError(String message) {
+    _messengerKey.currentState
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   void dispose() {
-    _services.authController.removeListener(_syncIncidentPolling);
-    _services.incidents.stopPolling();
+    _services.authController.removeListener(_scheduleNotificationNavigation);
+    unawaited(_notificationTapSubscription?.cancel());
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
+      scaffoldMessengerKey: _messengerKey,
       debugShowCheckedModeBanner: false,
       title: 'شباب البلد',
       theme: AppTheme.light,
@@ -97,7 +209,6 @@ class _FirePinAppState extends State<FirePinApp> {
         fullName: account.fullName,
         identityNumber: account.nationalId,
         birthDate: account.birthDate,
-        gender: '',
         address: account.address,
       )
       ..phone = account.phone
@@ -128,7 +239,6 @@ class _FirePinAppState extends State<FirePinApp> {
     return HomeScreen(
       hasLocation: session.location != null,
       session: session,
-      incidentController: _services.incidents,
       reportRepository: _services.reportRepository,
       location: _services.location,
       onReport: () => setState(() => _reporting = true),

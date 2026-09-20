@@ -95,7 +95,7 @@ void main() {
     await tapText(tester, 'تسجيل الدخول');
     expect(find.byType(MunicipalityDashboard), findsOneWidget);
     expect(find.text('الحرائق النشطة'), findsOneWidget);
-    expect(find.text('FP-1042'), findsWidgets);
+    expect(find.text('#1042'), findsWidgets);
 
     await tapText(tester, 'طلبات التطوع');
     expect(find.text('سارة محمود خليل'), findsOneWidget);
@@ -108,7 +108,7 @@ void main() {
     expect(find.text('سارة محمود خليل'), findsOneWidget);
 
     await tapText(tester, 'السجل');
-    expect(find.textContaining('FP-1037'), findsOneWidget);
+    expect(find.textContaining('#1037'), findsOneWidget);
 
     await tapText(tester, 'الحساب');
     await tapText(tester, 'تسجيل الخروج');

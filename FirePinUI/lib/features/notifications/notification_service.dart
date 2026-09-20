@@ -56,7 +56,7 @@ class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
   final Future<String?> Function()? _tokenProvider;
   final String? _platformOverride;
   final StreamController<String> _reportTapController =
-      StreamController<String>.broadcast();
+      StreamController<String>.broadcast(sync: true);
 
   StreamSubscription<RemoteMessage>? _foregroundSubscription;
   StreamSubscription<RemoteMessage>? _openedSubscription;
@@ -66,6 +66,7 @@ class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
   String? _currentToken;
   String? _registeredToken;
   String? _initialReportId;
+  final Set<String> _handledTapKeys = <String>{};
   Future<void> _ownershipOperations = Future<void>.value();
 
   Stream<String> get reportTaps => _reportTapController.stream;
@@ -102,15 +103,13 @@ class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
 
       final initialMessage = await _messaging.getInitialMessage();
       if (initialMessage != null) {
-        _initialReportId = _reportId(initialMessage.data['report_id']);
+        _storeInitialTap(initialMessage.data, initialMessage.messageId);
       }
 
       final localLaunch = await _localNotifications
           .getNotificationAppLaunchDetails();
       if (localLaunch?.didNotificationLaunchApp ?? false) {
-        _initialReportId = _reportIdFromPayload(
-          localLaunch?.notificationResponse?.payload,
-        );
+        _storeInitialPayload(localLaunch?.notificationResponse?.payload);
       }
     } on Object catch (error) {
       debugPrint('Notification setup unavailable: ${error.runtimeType}');
@@ -234,7 +233,10 @@ class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
           presentSound: true,
         ),
       ),
-      payload: jsonEncode(message.data),
+      payload: jsonEncode({
+        ...message.data,
+        if (message.messageId != null) '_firepin_message_id': message.messageId,
+      }),
     );
   }
 
@@ -292,37 +294,82 @@ class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
   }
 
   void _handleRemoteMessageTap(RemoteMessage message) {
-    final reportId = _reportId(message.data['report_id']);
-    if (reportId != null) {
-      _reportTapController.add(reportId);
-    }
+    _emitTap(message.data, message.messageId);
   }
 
   void _handleLocalNotificationTap(NotificationResponse response) {
-    final reportId = _reportIdFromPayload(response.payload);
-    if (reportId != null) {
-      _reportTapController.add(reportId);
+    final data = _dataFromPayload(response.payload);
+    if (data != null) {
+      _emitTap(data, data['_firepin_message_id']?.toString());
     }
   }
 
   String? _reportId(Object? value) {
-    final reportId = value?.toString();
-    if (reportId != null && reportId.isNotEmpty) {
-      return reportId;
-    }
-    return null;
+    final reportId = int.tryParse(value?.toString() ?? '');
+    return reportId != null && reportId > 0 ? reportId.toString() : null;
   }
 
-  String? _reportIdFromPayload(String? payload) {
+  Map<String, dynamic>? _dataFromPayload(String? payload) {
     if (payload == null) {
       return null;
     }
     try {
-      final data = jsonDecode(payload) as Map<String, dynamic>;
-      return _reportId(data['report_id']);
+      final data = jsonDecode(payload);
+      return data is Map<String, dynamic> ? data : null;
     } on FormatException {
       return null;
     }
+  }
+
+  void _storeInitialPayload(String? payload) {
+    final data = _dataFromPayload(payload);
+    if (data != null) {
+      _storeInitialTap(data, data['_firepin_message_id']?.toString());
+    }
+  }
+
+  void _storeInitialTap(Map<String, dynamic> data, String? messageId) {
+    final reportId = _reportId(data['report_id']);
+    if (reportId == null) return;
+    final key = _tapKey(data, reportId, messageId);
+    if (_handledTapKeys.add(key)) {
+      _initialReportId = reportId;
+    }
+  }
+
+  void _emitTap(Map<String, dynamic> data, String? messageId) {
+    final reportId = _reportId(data['report_id']);
+    if (reportId == null) return;
+    final key = _tapKey(data, reportId, messageId);
+    if (_handledTapKeys.add(key)) {
+      _reportTapController.add(reportId);
+    }
+  }
+
+  String _tapKey(
+    Map<String, dynamic> data,
+    String reportId,
+    String? messageId,
+  ) => messageId?.trim().isNotEmpty == true
+      ? 'message:${messageId!.trim()}'
+      : '${data['type'] ?? data['event_type'] ?? 'report'}:$reportId';
+
+  @visibleForTesting
+  void handleReportTapForTest({
+    required Object? reportId,
+    String? type,
+    String? messageId,
+  }) {
+    _emitTap({'report_id': reportId, 'type': ?type}, messageId);
+  }
+
+  @visibleForTesting
+  void setInitialReportTapForTest({
+    required Object? reportId,
+    String? type,
+    String? messageId,
+  }) {
+    _storeInitialTap({'report_id': reportId, 'type': ?type}, messageId);
   }
 
   String _fallbackTitle(String? type) {

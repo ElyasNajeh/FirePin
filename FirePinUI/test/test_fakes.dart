@@ -4,15 +4,197 @@ import 'package:firepin_ui/app/app_services.dart';
 import 'package:firepin_ui/core/services/camera_service.dart';
 import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
+import 'package:firepin_ui/features/onboarding/identity_document_processor.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
+import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
-import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/municipality/municipality_repository.dart';
+import 'package:firepin_ui/features/report/fire_report_repository.dart';
 import 'package:flutter/material.dart';
 
 final testPhoto = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAeSURBVDhPY5jxe8Z/SjADugCpeNSAUQNGDRgsBgAAS3MqLkKHgmcAAAAASUVORK5CYII=',
 );
+
+class DemoAuthRepository implements AuthRepository {
+  DemoAuthRepository([MunicipalityRepository? _]);
+
+  static const citizenNationalId = '123456789';
+  static const citizenPin = '1234';
+  static const secondCitizenNationalId = '246813579';
+  static const secondCitizenPin = '2468';
+  static const volunteerNationalId = '987654321';
+  static const volunteerPin = '4321';
+  static const secondVolunteerNationalId = '864209753';
+  static const secondVolunteerPin = '5678';
+  static const pendingNationalId = '111222333';
+  static const pendingPin = '1234';
+
+  String? _activeNationalId;
+  OnboardingSession? _activeRegistration;
+  final Map<String, String> _pins = {
+    citizenNationalId: citizenPin,
+    secondCitizenNationalId: secondCitizenPin,
+    volunteerNationalId: volunteerPin,
+    secondVolunteerNationalId: secondVolunteerPin,
+    pendingNationalId: pendingPin,
+  };
+  final Map<String, UserAccount> _accounts = {
+    citizenNationalId: const UserAccount(
+      id: 'user-citizen',
+      fullName: 'أحمد محمد عبد الله',
+      nationalId: citizenNationalId,
+      phone: '059 123 4567',
+      birthDate: '14 / 05 / 1998',
+      address: 'القدس — الطور',
+      applicationStatus: ApplicationStatus.none,
+      hasVolunteerMembership: false,
+    ),
+    secondCitizenNationalId: const UserAccount(
+      id: 'user-citizen-2',
+      fullName: 'ريم سامر حمدان',
+      nationalId: secondCitizenNationalId,
+      phone: '059 333 4455',
+      birthDate: '17 / 11 / 2001',
+      address: 'القدس — بيت حنينا',
+      applicationStatus: ApplicationStatus.none,
+      hasVolunteerMembership: false,
+    ),
+    volunteerNationalId: const UserAccount(
+      id: 'user-volunteer',
+      fullName: 'ليان أحمد صالح',
+      nationalId: volunteerNationalId,
+      phone: '059 222 3344',
+      birthDate: '22 / 03 / 1996',
+      address: 'القدس — وادي الجوز',
+      applicationStatus: ApplicationStatus.accepted,
+      hasVolunteerMembership: true,
+    ),
+    secondVolunteerNationalId: const UserAccount(
+      id: 'user-volunteer-2',
+      fullName: 'عمر يوسف النجار',
+      nationalId: secondVolunteerNationalId,
+      phone: '059 333 4466',
+      birthDate: '06 / 07 / 1995',
+      address: 'القدس — شعفاط',
+      applicationStatus: ApplicationStatus.accepted,
+      hasVolunteerMembership: true,
+    ),
+    pendingNationalId: const UserAccount(
+      id: 'user-pending',
+      fullName: 'سارة محمود خليل',
+      nationalId: pendingNationalId,
+      phone: '059 765 4321',
+      birthDate: '09 / 08 / 1999',
+      address: 'القدس — الصوانة',
+      applicationStatus: ApplicationStatus.pending,
+      hasVolunteerMembership: false,
+    ),
+  };
+
+  @override
+  Future<UserLoginResult> loginUser({
+    required String nationalId,
+    required String pin,
+  }) async {
+    final id = normalizeDigits(nationalId).trim();
+    if (_pins[id] != normalizeDigits(pin).trim()) {
+      throw const AuthFailure('بيانات الدخول غير صحيحة.');
+    }
+    _activeNationalId = id;
+    return UserLoginResult(account: _accounts[id]!);
+  }
+
+  @override
+  Future<UserAccount> restoreUser() async {
+    final account = _accounts[_activeNationalId ?? citizenNationalId];
+    if (account == null) throw const AuthFailure('انتهت الجلسة.');
+    final registration = _activeRegistration;
+    return registration == null
+        ? account
+        : account.copyWith(
+            applicationStatus: registration.applicationStatus,
+            hasVolunteerMembership:
+                registration.applicationStatus == ApplicationStatus.accepted,
+          );
+  }
+
+  @override
+  Future<UserLoginResult> registerUser(OnboardingSession session) async {
+    final identity = session.identity;
+    final pin = session.pinForRegistration;
+    if (identity == null || pin == null) {
+      throw const AuthFailure('بيانات التسجيل غير مكتملة.');
+    }
+    final account = UserAccount(
+      id: 'test-${identity.identityNumber}',
+      fullName: identity.fullName,
+      nationalId: identity.identityNumber,
+      phone: session.phone,
+      birthDate: identity.birthDate,
+      address: identity.address,
+      applicationStatus: session.applicationStatus,
+      hasVolunteerMembership:
+          session.applicationStatus == ApplicationStatus.accepted,
+    );
+    _accounts[account.nationalId] = account;
+    _pins[account.nationalId] = pin;
+    _activeNationalId = account.nationalId;
+    _activeRegistration = session;
+    return UserLoginResult(account: account);
+  }
+
+  @override
+  Future<bool> verifyUserPin({
+    required String userId,
+    required String pin,
+  }) async {
+    final account = _accounts.values
+        .where((item) => item.id == userId)
+        .firstOrNull;
+    return account != null &&
+        _pins[account.nationalId] == normalizeDigits(pin).trim();
+  }
+
+  @override
+  Future<void> clearLocalSession() async {
+    _activeNationalId = null;
+    _activeRegistration = null;
+  }
+
+  @override
+  Future<void> logoutUser() => clearLocalSession();
+}
+
+class DemoMunicipalityAuthRepository implements MunicipalityAuthRepository {
+  static const demoEmail = 'municipality@firepin.ps';
+  static const demoPassword = 'firepin-test';
+  static const account = MunicipalityAccount(
+    id: 'municipality-101',
+    name: 'بلدية القدس',
+    email: demoEmail,
+    serviceArea: '',
+    isActive: true,
+  );
+
+  @override
+  Future<MunicipalityLoginResult> login({
+    required String email,
+    required String password,
+  }) async {
+    if (email.trim().toLowerCase() != demoEmail || password != demoPassword) {
+      throw const AuthFailure('بيانات الدخول غير صحيحة.');
+    }
+    return const MunicipalityLoginResult(account: account);
+  }
+
+  @override
+  Future<MunicipalityAccount> restore() async => account;
+  @override
+  Future<void> clearLocalSession() async {}
+  @override
+  Future<void> logout() async {}
+}
 
 class FakePermissions implements DevicePermissions {
   FakePermissions({this.result = DevicePermission.granted});
@@ -72,7 +254,32 @@ class FakeCamera implements CameraSource {
   }
 }
 
-class FakeReports implements FireReportService {
+class FakeIdentityDocumentProcessor implements IdentityDocumentProcessor {
+  FakeIdentityDocumentProcessor({
+    this.result = const IdentityData(
+      fullName: 'أحمد محمد عبد الله',
+      identityNumber: '123456789',
+      birthDate: '14 / 05 / 1998',
+      address: '',
+    ),
+    this.failure,
+  });
+
+  final IdentityData result;
+  final IdentityScanFailure? failure;
+  int calls = 0;
+  Uint8List? receivedImage;
+
+  @override
+  Future<IdentityData> extract(Uint8List imageBytes) async {
+    calls++;
+    receivedImage = Uint8List.fromList(imageBytes);
+    if (failure != null) throw failure!;
+    return result;
+  }
+}
+
+class FakeReports implements FireReportRepository {
   int submissions = 0;
   bool hasPhoto = false;
   String? pin;
@@ -86,22 +293,44 @@ class FakeReports implements FireReportService {
     hasPhoto = photo != null;
     this.pin = pin;
   }
-}
 
-class TrackingOtpService implements OtpService {
-  int sends = 0;
-  int verifications = 0;
+  static final report = FireReport(
+    id: 91,
+    latitude: 31.78,
+    longitude: 35.24,
+    status: FireReportStatus.pending,
+    reportedAt: DateTime(2026, 9, 18),
+    updatedAt: DateTime(2026, 9, 18),
+    municipality: const FireReportMunicipality(id: 101, name: 'بلدية القدس'),
+    images: const [],
+  );
 
   @override
-  Future<void> send(String phone) async {
-    sends++;
-  }
-
+  Future<FireReport> claimReport(int reportId) async => report;
   @override
-  Future<bool> verify(String phone, String code) async {
-    verifications++;
-    return true;
-  }
+  Future<FireReport> getMyReport(int reportId) async => report;
+  @override
+  Future<List<FireReport>> getMyReports() async => [report];
+  @override
+  Future<FireReport> getVolunteerReport(int reportId) async => report;
+  @override
+  Future<List<FireReport>> getVolunteerReports() async => [report];
+  @override
+  Future<FireReportRoute> getVolunteerRoute(
+    int reportId,
+    LocationFix origin,
+  ) async => FireReportRoute(
+    geometry: [
+      RoutePoint(latitude: origin.latitude, longitude: origin.longitude),
+      const RoutePoint(latitude: 31.78, longitude: 35.24),
+    ],
+    distanceKm: 1,
+    durationSeconds: 60,
+  );
+  @override
+  Future<Uint8List> getImage(int reportId, int imageId) async => testPhoto;
+  @override
+  Future<FireReport> resolveReport(int reportId) async => report;
 }
 
 class FakeVolunteerApplicationService implements VolunteerApplicationService {
@@ -136,11 +365,7 @@ class FakeMunicipalityDirectoryRepository
 
 class FakeMunicipalityOperationsRepository extends ChangeNotifier
     implements MunicipalityRepository {
-  FakeMunicipalityOperationsRepository({required this.incidentController}) {
-    incidentController.addListener(notifyListeners);
-  }
-
-  final IncidentController incidentController;
+  FakeMunicipalityOperationsRepository();
   @override
   final List<VolunteerApplicationRecord> applications = [
     VolunteerApplicationRecord(
@@ -177,33 +402,16 @@ class FakeMunicipalityOperationsRepository extends ChangeNotifier
   ];
 
   @override
-  bool get hasSyncError => incidentController.hasSyncError;
+  bool get hasSyncError => false;
   @override
   bool get isVolunteerDataLoading => false;
   @override
   Object? get volunteerDataError => null;
   @override
-  List<MunicipalityIncidentRecord> get incidents => [
-    for (final incident in incidentController.incidents)
-      MunicipalityIncidentRecord(
-        id: incident.id,
-        stage: incident.stage,
-        reportedAt: incident.reportedAt,
-        reporterName: incident.reporterName ?? 'Test user',
-        reporterPhone: incident.reporterPhone,
-        reporterNationalId:
-            incident.reporterNationalId ?? incident.reporterId ?? 'unknown',
-        locationLabel: 'Test location',
-        latitude: incident.fireLocation.latitude,
-        longitude: incident.fireLocation.longitude,
-        municipalityName: 'Test municipality',
-        events: List.unmodifiable(incident.events),
-        assignedVolunteer: incident.responders.firstOrNull,
-        photo: incident.photo,
-      ),
-    MunicipalityIncidentRecord(
-      id: 'FP-1042',
-      stage: IncidentStage.waitingForResponder,
+  List<MunicipalityFireReport> get reports => [
+    MunicipalityFireReport(
+      id: 1042,
+      status: FireReportStatus.pending,
       reportedAt: DateTime(2026, 9, 18),
       reporterName: 'Reporter',
       reporterPhone: '0590000000',
@@ -212,11 +420,10 @@ class FakeMunicipalityOperationsRepository extends ChangeNotifier
       latitude: 31.78,
       longitude: 35.24,
       municipalityName: 'Municipality',
-      events: const [],
     ),
-    MunicipalityIncidentRecord(
-      id: 'FP-1037',
-      stage: IncidentStage.resolved,
+    MunicipalityFireReport(
+      id: 1037,
+      status: FireReportStatus.resolved,
       reportedAt: DateTime(2026, 9, 17),
       reporterName: 'Reporter',
       reporterPhone: '0590000000',
@@ -225,12 +432,15 @@ class FakeMunicipalityOperationsRepository extends ChangeNotifier
       latitude: 31.78,
       longitude: 35.24,
       municipalityName: 'Municipality',
-      events: const [],
     ),
   ];
 
   @override
   Future<void> loadVolunteerData() async {}
+
+  @override
+  Future<MunicipalityFireReport> getReport(int reportId) async =>
+      reports.where((report) => report.id == reportId).first;
 
   @override
   Future<void> acceptApplication(int id) async {
@@ -283,12 +493,6 @@ class FakeMunicipalityOperationsRepository extends ChangeNotifier
 
   bool hasVolunteerMembership(String nationalId) =>
       volunteers.any((item) => item.nationalId == nationalId);
-
-  @override
-  void dispose() {
-    incidentController.removeListener(notifyListeners);
-    super.dispose();
-  }
 }
 
 AppServices fakeServices({
@@ -296,25 +500,20 @@ AppServices fakeServices({
   FakeLocation? location,
   FakeCamera? camera,
   FakeReports? reports,
-  OtpService? otp,
+  FakeIdentityDocumentProcessor? identityProcessor,
   SessionRepository? sessions,
 }) {
-  final incidents = IncidentController();
-  final operations = FakeMunicipalityOperationsRepository(
-    incidentController: incidents,
-  );
+  final operations = FakeMunicipalityOperationsRepository();
+  final fakeReports = reports ?? FakeReports();
   return AppServices(
     permissions: permissions ?? FakePermissions(),
     location: location ?? FakeLocation(),
     camera: () => camera ?? FakeCamera(),
-    reports: reports ?? FakeReports(),
+    identityProcessor: identityProcessor ?? FakeIdentityDocumentProcessor(),
+    reports: fakeReports,
+    reportRepository: fakeReports,
     volunteer: FakeVolunteerApplicationService(),
     sessions: sessions ?? MemorySessionRepository(),
-    identity: const MockIdentityVerificationService(
-      delay: Duration(milliseconds: 1500),
-    ),
-    otp: otp ?? MockOtpService(delay: Duration.zero),
-    incidents: incidents,
     operations: operations,
     municipalityDirectory: FakeMunicipalityDirectoryRepository(),
     auth: DemoAuthRepository(operations),

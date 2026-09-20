@@ -1,524 +1,162 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../app/app_services.dart';
+
+import '../../core/services/camera_service.dart';
+import '../../core/services/device_services.dart';
 import '../../core/ui/components.dart';
 import '../../core/ui/live_camera.dart';
-import '../../core/ui/motion.dart';
 import '../../theme/app_theme.dart';
+import 'identity_document_processor.dart';
 import 'onboarding_models.dart';
 
-/// Figma 20:3, using the real camera rather than the design's empty viewport.
 class IdentityCaptureScreen extends StatefulWidget {
   const IdentityCaptureScreen({
     super.key,
-    required this.services,
-    required this.onVerified,
+    required this.cameraFactory,
+    required this.permissions,
+    required this.processor,
+    required this.onExtracted,
     this.onBack,
   });
-  final AppServices services;
-  final void Function(Uint8List image, IdentityData identity) onVerified;
+
+  final CameraSourceFactory cameraFactory;
+  final DevicePermissions permissions;
+  final IdentityDocumentProcessor processor;
+  final ValueChanged<IdentityData> onExtracted;
   final VoidCallback? onBack;
+
   @override
   State<IdentityCaptureScreen> createState() => _IdentityCaptureScreenState();
 }
 
-class _IdentityCaptureScreenState extends State<IdentityCaptureScreen>
-    with SingleTickerProviderStateMixin {
+class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
   final _camera = GlobalKey<LiveCameraState>();
-  late final _scan = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1500),
-  );
-  Uint8List? _image;
   bool _ready = false;
-  bool _busy = false;
+  bool _processing = false;
   String? _error;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_busy && _image != null) {
-      if (AppMotion.reduced(context)) {
-        _scan.stop();
-      } else if (!_scan.isAnimating) {
-        _scan.repeat();
-      }
-    }
-  }
-
   Future<void> _capture() async {
-    if (_busy) return;
+    if (!_ready || _processing) return;
     setState(() {
-      _busy = true;
+      _processing = true;
       _error = null;
     });
     try {
       final image = await _camera.currentState?.capture();
-      if (!mounted) return;
       if (image == null) {
-        setState(() => _error = 'تعذّر التقاط الصورة. حاول مرة أخرى.');
-        return;
+        throw const IdentityScanFailure(
+          'تعذّر التقاط الصورة. ثبّت الهاتف وأعد المحاولة.',
+        );
       }
-      HapticFeedback.lightImpact();
-      setState(() => _image = image);
-      if (!AppMotion.reduced(context)) _scan.repeat();
-      final result = await widget.services.identity.verify(image);
-      if (!mounted) return;
-      _scan.stop();
-      widget.onVerified(image, result);
-    } catch (_) {
+      final identity = await widget.processor.extract(image);
+      if (mounted) widget.onExtracted(identity);
+    } on IdentityScanFailure catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on Object {
       if (mounted) {
-        setState(() => _error = 'تعذّر فحص الصورة. أعد التصوير وحاول مجددًا.');
+        setState(
+          () => _error =
+              'تعذّرت معالجة الهوية. تأكد من وضوح البطاقة وأعد التصوير.',
+        );
       }
     } finally {
-      if (mounted) {
-        _scan.stop();
-        setState(() => _busy = false);
-      }
+      if (mounted) setState(() => _processing = false);
     }
   }
 
   @override
-  void dispose() {
-    _scan.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_busy,
-    child: OnboardingPage(
-      onBack: widget.onBack,
-      backEnabled: !_busy,
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: Stack(
+      fit: StackFit.expand,
       children: [
-        const SizedBox(height: 32),
-        Text('صوّر بطاقة الهوية', style: AppType.title),
-        const SizedBox(height: 8),
-        Text(
-          'ضع البطاقة داخل الإطار وتأكد\nأن جميع البيانات واضحة.',
-          style: AppType.body,
+        LiveCamera(
+          key: _camera,
+          factory: widget.cameraFactory,
+          active: !_processing,
+          onReady: (ready) {
+            if (mounted && _ready != ready) setState(() => _ready = ready);
+          },
+          onSettings: () {
+            widget.permissions.openAppSettings();
+          },
         ),
-        const SizedBox(height: 30),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: SizedBox(
-            height: 430,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                ExcludeSemantics(
-                  excluding: _image != null,
-                  child: LiveCamera(
-                    key: _camera,
-                    factory: widget.services.camera,
-                    active: _image == null,
-                    onReady: (ready) {
-                      if (mounted && _ready != ready) {
-                        setState(() => _ready = ready);
-                      }
-                    },
-                    onSettings: () async {
-                      await widget.services.permissions.openAppSettings();
-                    },
-                  ),
-                ),
-                if (_image != null)
-                  Image.memory(
-                    _image!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                  ),
-                IgnorePointer(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          height: 196,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(
-                                    alpha: _busy ? 0.09 : 0.06,
-                                  ),
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: const Color(
-                                      0xFFDBF2ED,
-                                    ).withValues(alpha: 0.6),
-                                  ),
-                                ),
-                              ),
-                              Breathe(
-                                enabled: !_busy && _ready,
-                                opacity: 0.75,
-                                scale: 1,
-                                child: const FigmaIcon(
-                                  'id_corners',
-                                  width: 310,
-                                  height: 196,
-                                  fit: BoxFit.fill,
-                                ),
-                              ),
-                              if (_busy && _image != null)
-                                RepaintBoundary(
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: CustomPaint(
-                                      painter: _ScanPainter(
-                                        _scan,
-                                        reduced: AppMotion.reduced(context),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        Container(
-                          constraints: const BoxConstraints(minHeight: 44),
-                          width: 200,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.18),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Breathe(
-                                enabled: !_busy && _ready,
-                                scale: 1,
-                                child: const FigmaIcon('camera_dot', size: 8),
-                              ),
-                              const SizedBox(width: 8),
-                              Flexible(
-                                child: Text(
-                                  _busy && _image != null
-                                      ? 'جارٍ فحص الهوية'
-                                      : 'قرّب البطاقة',
-                                  style: AppType.text(
-                                    16,
-                                    color: Colors.white,
-                                    weight: FontWeight.w500,
-                                    height: 27,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        InlineMessage(_error),
-        const SizedBox(height: 26),
-        AppButton(
-          _busy
-              ? 'جارٍ فحص الهوية'
-              : _image != null
-              ? 'إعادة التصوير'
-              : 'التقاط الصورة',
-          busy: _busy,
-          onPressed: _image != null && !_busy
-              ? () => setState(() {
-                  _image = null;
-                  _error = null;
-                })
-              : _ready
-              ? _capture
-              : null,
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'التصوير باستخدام الكاميرا مباشرة',
-          style: AppType.caption,
-          textAlign: TextAlign.center,
-        ),
-      ],
-    ),
-  );
-}
-
-class _ScanPainter extends CustomPainter {
-  _ScanPainter(this.animation, {required this.reduced})
-    : super(repaint: animation);
-  final Animation<double> animation;
-  final bool reduced;
-  @override
-  void paint(Canvas canvas, Size size) {
-    final y = reduced
-        ? size.height * 0.5
-        : 8 + animation.value * (size.height - 16);
-    final trail = Rect.fromLTWH(0, y - 30, size.width, 30);
-    canvas.drawRect(
-      trail,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0x001CBA93), Color(0x551CBA93)],
-        ).createShader(trail),
-    );
-    canvas.drawLine(
-      Offset(8, y),
-      Offset(size.width - 8, y),
-      Paint()
-        ..color = const Color(0xFFB6F4D9)
-        ..strokeWidth = 2,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_ScanPainter oldDelegate) =>
-      oldDelegate.reduced != reduced;
-}
-
-/// Figma 118:2. The visual communicates a MOCK result, not a local algorithm.
-class IdentitySuccessScreen extends StatefulWidget {
-  const IdentitySuccessScreen({super.key, required this.onContinue});
-  final VoidCallback onContinue;
-  @override
-  State<IdentitySuccessScreen> createState() => _IdentitySuccessScreenState();
-}
-
-class _IdentitySuccessScreenState extends State<IdentitySuccessScreen>
-    with WidgetsBindingObserver {
-  Timer? _timer;
-  bool _started = false;
-  void _start() {
-    _timer?.cancel();
-    _timer = Timer(const Duration(milliseconds: 2280), () {
-      if (mounted) widget.onContinue();
-    });
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_started) {
-      _started = true;
-      HapticFeedback.mediumImpact();
-      _start();
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _start();
-    } else {
-      _timer?.cancel();
-    }
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: false,
-    child: OnboardingPage(
-      children: [
-        const SizedBox(height: 88),
-        Center(
-          child: Reveal(
-            scale: true,
-            child: Container(
-              width: 220,
-              height: 220,
-              decoration: const BoxDecoration(
-                color: AppColors.primaryContainer,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x1F082E29),
-                    blurRadius: 28,
-                    offset: Offset(0, 10),
-                  ),
-                ],
-              ),
-              alignment: Alignment.center,
-              child: Reveal(
-                scale: true,
-                delay: const Duration(milliseconds: 70),
-                child: Container(
-                  width: 154,
-                  height: 154,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.18),
-                    ),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Reveal(
-                    scale: true,
-                    delay: Duration(milliseconds: 140),
-                    child: FigmaIcon(
-                      'identity_success',
-                      width: 92,
-                      height: 102,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 36),
-        Reveal(
-          delay: const Duration(milliseconds: 180),
-          child: Semantics(
-            liveRegion: true,
-            child: const PageTitle(
-              'تم التحقق من صحة الهوية',
-              align: TextAlign.center,
-            ),
-          ),
-        ),
-        const SizedBox(height: 14),
-        const CopyBlock(
-          'تم التأكد من صلاحية بطاقة الهوية بنجاح.',
-          minHeight: 54,
-          center: true,
-        ),
-        const SizedBox(height: 34),
-        Reveal(
-          delay: const Duration(milliseconds: 240),
-          child: Center(
-            child: Container(
-              width: 214,
-              constraints: const BoxConstraints(minHeight: 42),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(21),
-                border: Border.all(color: AppColors.outline),
-              ),
-              child: Text(
-                '✓ هوية صالحة',
-                style: AppType.text(
-                  15,
-                  color: AppColors.primary,
-                  weight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'سيتم عرض بيانات الهوية الآن',
-          textAlign: TextAlign.center,
-          style: AppType.caption,
-        ),
-      ],
-    ),
-  );
-}
-
-/// Figma 109:22 (redesigned review; intentionally no expiry date).
-class IdentityReviewScreen extends StatelessWidget {
-  const IdentityReviewScreen({
-    super.key,
-    required this.identity,
-    required this.image,
-    required this.onContinue,
-    this.onBack,
-  });
-  final IdentityData identity;
-  final Uint8List image;
-  final VoidCallback onContinue;
-  final VoidCallback? onBack;
-  @override
-  Widget build(BuildContext context) => OnboardingPage(
-    onBack: onBack,
-    children: [
-      const SizedBox(height: 32),
-      const PageTitle('تم استخراج بيانات الهوية بنجاح', size: 24),
-      Text(
-        'راجع بياناتك قبل المتابعة',
-        style: AppType.text(15, color: AppColors.textSecondary),
-      ),
-      const SizedBox(height: 20),
-      Reveal(
-        child: SurfaceCard(
-          padding: 15,
-          radius: 20,
-          shadow: true,
-          child: Row(
+        ColoredBox(color: Colors.black.withValues(alpha: 0.20)),
+        SafeArea(
+          child: Column(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: SizedBox(
-                  width: 94,
-                  height: 110,
-                  // A visual-only crop of the captured photo. NOT face extraction/OCR.
-                  child: Image.memory(
-                    image,
-                    fit: BoxFit.cover,
-                    alignment: const Alignment(0.65, 0),
-                    errorBuilder: (_, _, _) =>
-                        const FigmaIcon('portrait', width: 94, height: 110),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    IconButton(
+                      key: const ValueKey('identity-capture-back'),
+                      onPressed: _processing ? null : widget.onBack,
+                      icon: const Icon(
+                        Icons.arrow_back_ios_new,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        'تصوير بطاقة الهوية الفلسطينية',
+                        textAlign: TextAlign.center,
+                        style: AppType.text(
+                          18,
+                          weight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 48),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                child: AspectRatio(
+                  aspectRatio: 1.58,
+                  child: Container(
+                    key: const ValueKey('identity-card-frame'),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white, width: 3),
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 20),
-              Expanded(
+              const Spacer(),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
+                color: Colors.black.withValues(alpha: 0.72),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryContainer,
-                        borderRadius: BorderRadius.circular(17),
-                      ),
-                      child: Text(
-                        'الصورة المستخرجة من الهوية',
+                    Text(
+                      'ضع الوجه الأمامي للهوية داخل الإطار، وتجنب اللمعان والظلال.',
+                      textAlign: TextAlign.center,
+                      style: AppType.text(13, color: Colors.white),
+                    ),
+                    if (_error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _error!,
+                        key: const ValueKey('identity-scan-error'),
                         textAlign: TextAlign.center,
                         style: AppType.text(
                           13,
-                          color: AppColors.primary,
-                          weight: FontWeight.w500,
+                          weight: FontWeight.w700,
+                          color: const Color(0xFFFFB4AB),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'تم قص الصورة تلقائيًا من البطاقة المصوّرة.',
-                      style: AppType.text(13, color: AppColors.textSecondary),
+                    ],
+                    const SizedBox(height: 14),
+                    AppButton(
+                      _processing ? 'جارٍ قراءة الهوية...' : 'التقاط الهوية',
+                      key: const ValueKey('capture-identity'),
+                      onPressed: !_ready || _processing ? null : _capture,
                     ),
                   ],
                 ),
@@ -526,114 +164,201 @@ class IdentityReviewScreen extends StatelessWidget {
             ],
           ),
         ),
+      ],
+    ),
+  );
+}
+
+class IdentityDetailsScreen extends StatefulWidget {
+  const IdentityDetailsScreen({
+    super.key,
+    required this.onContinue,
+    this.initialData,
+    this.onBack,
+  });
+
+  final ValueChanged<IdentityData> onContinue;
+  final IdentityData? initialData;
+  final VoidCallback? onBack;
+
+  @override
+  State<IdentityDetailsScreen> createState() => _IdentityDetailsScreenState();
+}
+
+class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
+  late final _fullName = TextEditingController(
+    text: widget.initialData?.fullName ?? '',
+  );
+  late final _nationalId = TextEditingController(
+    text: widget.initialData?.identityNumber ?? '',
+  );
+  late final _birthDate = TextEditingController(
+    text: widget.initialData?.birthDate ?? '',
+  );
+  late final _address = TextEditingController(
+    text: widget.initialData?.address ?? '',
+  );
+  String? _error;
+
+  void _clearError() {
+    if (_error != null) setState(() => _error = null);
+  }
+
+  void _submit() {
+    final fullName = _fullName.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final nationalId = normalizeDigits(_nationalId.text).trim();
+    final birthDate = normalizeDigits(_birthDate.text).trim();
+    if (RegExp(r'[ء-ي]{2,}').allMatches(fullName).length < 2) {
+      setState(() => _error = 'أدخل الاسم الكامل كما هو في الهوية.');
+      return;
+    }
+    if (!RegExp(r'^[0-9]{9}$').hasMatch(nationalId)) {
+      setState(() => _error = 'رقم الهوية يجب أن يتكوّن من 9 أرقام.');
+      return;
+    }
+    if (!_validBirthDate(birthDate)) {
+      setState(() => _error = 'أدخل تاريخ ميلاد صحيحًا بصيغة يوم/شهر/سنة.');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    widget.onContinue(
+      IdentityData(
+        fullName: fullName,
+        identityNumber: nationalId,
+        birthDate: birthDate,
+        address: _address.text.trim(),
       ),
-      const SizedBox(height: 20),
-      Text(
-        'بيانات الهوية',
-        style: AppType.text(17, weight: FontWeight.w700, height: 28),
-      ),
+    );
+  }
+
+  bool _validBirthDate(String value) {
+    final parts = value.split(RegExp(r'\s*/\s*'));
+    if (parts.length != 3) return false;
+    final day = int.tryParse(parts[0]);
+    final month = int.tryParse(parts[1]);
+    final year = int.tryParse(parts[2]);
+    if (day == null || month == null || year == null) return false;
+    final date = DateTime(year, month, day);
+    final today = DateTime.now();
+    return date.year == year &&
+        date.month == month &&
+        date.day == day &&
+        year >= today.year - 120 &&
+        !date.isAfter(DateTime(today.year, today.month, today.day));
+  }
+
+  @override
+  void dispose() {
+    _fullName.dispose();
+    _nationalId.dispose();
+    _birthDate.dispose();
+    _address.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => OnboardingPage(
+    onBack: widget.onBack,
+    children: [
+      const SizedBox(height: 32),
+      const PageTitle('بيانات الحساب'),
       const SizedBox(height: 8),
-      Reveal(
-        delay: const Duration(milliseconds: 50),
-        child: _IdentityField('الاسم الكامل', identity.fullName),
-      ),
-      const SizedBox(height: 12),
-      Reveal(
-        delay: const Duration(milliseconds: 100),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: _IdentityField(
-                'رقم الهوية',
-                identity.identityNumber,
-                latin: true,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _IdentityField(
-                'تاريخ الميلاد',
-                identity.birthDate,
-                latin: true,
-              ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 12),
-      Reveal(
-        delay: const Duration(milliseconds: 150),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 116,
-              child: _IdentityField('الجنس', identity.gender),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 214,
-              child: _IdentityField('العنوان', identity.address),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(height: 16),
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
-        decoration: BoxDecoration(
-          color: AppColors.primaryContainer,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            const FigmaIcon('info', size: 20),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'هذه البيانات مستخرجة من صورة الهوية. راجعها قبل المتابعة.',
-                style: AppType.text(12, weight: FontWeight.w500, height: 22),
-              ),
-            ),
-          ],
-        ),
+      Text(
+        'راجع البيانات المستخرجة من الهوية وصححها عند الحاجة.',
+        style: AppType.body,
       ),
       const SizedBox(height: 26),
-      AppButton('التالي', onPressed: onContinue),
+      _Field(
+        key: const ValueKey('identity-full-name'),
+        controller: _fullName,
+        label: 'الاسم الكامل',
+        textInputAction: TextInputAction.next,
+        onChanged: _clearError,
+      ),
+      const SizedBox(height: 14),
+      _Field(
+        key: const ValueKey('identity-national-id'),
+        controller: _nationalId,
+        label: 'رقم الهوية',
+        keyboardType: TextInputType.number,
+        textDirection: TextDirection.ltr,
+        maxLength: 9,
+        textInputAction: TextInputAction.next,
+        onChanged: _clearError,
+      ),
+      const SizedBox(height: 14),
+      _Field(
+        key: const ValueKey('identity-birth-date'),
+        controller: _birthDate,
+        label: 'تاريخ الميلاد',
+        hint: '14 / 05 / 1998',
+        keyboardType: TextInputType.datetime,
+        textDirection: TextDirection.ltr,
+        textInputAction: TextInputAction.next,
+        onChanged: _clearError,
+      ),
+      const SizedBox(height: 14),
+      _Field(
+        key: const ValueKey('identity-address'),
+        controller: _address,
+        label: 'العنوان (اختياري)',
+        textInputAction: TextInputAction.done,
+        onChanged: _clearError,
+        onSubmitted: _submit,
+      ),
+      InlineMessage(_error),
+      const SizedBox(height: 30),
+      AppButton('متابعة', onPressed: _submit),
     ],
   );
 }
 
-class _IdentityField extends StatelessWidget {
-  const _IdentityField(this.label, this.value, {this.latin = false});
+class _Field extends StatelessWidget {
+  const _Field({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.onChanged,
+    this.hint,
+    this.keyboardType,
+    this.textDirection,
+    this.maxLength,
+    this.textInputAction,
+    this.onSubmitted,
+  });
+
+  final TextEditingController controller;
   final String label;
-  final String value;
-  final bool latin;
+  final VoidCallback onChanged;
+  final String? hint;
+  final TextInputType? keyboardType;
+  final TextDirection? textDirection;
+  final int? maxLength;
+  final TextInputAction? textInputAction;
+  final VoidCallback? onSubmitted;
+
   @override
-  Widget build(BuildContext context) => Container(
-    constraints: const BoxConstraints(minHeight: 70),
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(15),
-      border: Border.all(color: AppColors.outline),
+  Widget build(BuildContext context) => TextField(
+    controller: controller,
+    keyboardType: keyboardType,
+    textDirection: textDirection,
+    textInputAction: textInputAction,
+    maxLength: maxLength,
+    inputFormatters: keyboardType == TextInputType.number
+        ? [
+            TextInputFormatter.withFunction(
+              (oldValue, newValue) =>
+                  newValue.copyWith(text: normalizeDigits(newValue.text)),
+            ),
+            FilteringTextInputFormatter.digitsOnly,
+          ]
+        : null,
+    decoration: InputDecoration(
+      labelText: label,
+      hintText: hint,
+      counterText: '',
     ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          label,
-          style: AppType.text(12, color: AppColors.textSecondary, height: 22),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          textDirection: latin ? TextDirection.ltr : TextDirection.rtl,
-          textAlign: TextAlign.right,
-          style: AppType.text(14, weight: FontWeight.w500, height: 30),
-        ),
-      ],
-    ),
+    onChanged: (_) => onChanged(),
+    onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
   );
 }

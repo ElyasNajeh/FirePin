@@ -308,7 +308,6 @@ void main() {
           body: SingleChildScrollView(
             child: AccountScreen(
               session: session,
-              onChangePin: () {},
               onLogout: () {},
               onApplyVolunteer: () => started = true,
             ),
@@ -520,7 +519,6 @@ OnboardingSession registrationSession() {
       fullName: 'Applicant',
       identityNumber: '123456789',
       birthDate: '14 / 05 / 1998',
-      gender: '',
       address: '',
     )
     ..phone = '0591111111';

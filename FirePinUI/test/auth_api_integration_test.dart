@@ -10,7 +10,6 @@ import 'package:firepin_ui/features/auth/auth_controller.dart';
 import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:firepin_ui/features/home/home_screen.dart';
-import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/notifications/notification_api.dart';
 import 'package:firepin_ui/features/notifications/notification_service.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
@@ -118,7 +117,6 @@ void main() {
         fullName: 'مستخدم جديد',
         identityNumber: '123456789',
         birthDate: '14 / 05 / 1998',
-        gender: '',
         address: 'عنوان محلي',
       )
       ..phone = '059 123 4567';
@@ -144,7 +142,6 @@ void main() {
         fullName: 'New User',
         identityNumber: '123456789',
         birthDate: '14 / 05 / 1998',
-        gender: '',
         address: '',
       )
       ..phone = '0591234567';
@@ -535,15 +532,11 @@ void main() {
     fixture.storage.refreshToken = 'user-refresh';
     final sessions = MemorySessionRepository()
       ..value = const StoredSession(principal: AuthPrincipal.user);
-    final incidents = IncidentController();
-    final operations = FakeMunicipalityOperationsRepository(
-      incidentController: incidents,
-    );
+    final operations = FakeMunicipalityOperationsRepository();
     final services = AppServices(
       auth: fixture.userRepository,
       municipalityAuth: fixture.municipalityRepository,
       sessions: sessions,
-      incidents: incidents,
       operations: operations,
     );
 
@@ -554,7 +547,6 @@ void main() {
     expect(find.byType(HomeScreen), findsOneWidget);
     services.authController.dispose();
     operations.dispose();
-    incidents.dispose();
   });
 }
 

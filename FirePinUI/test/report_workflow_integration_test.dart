@@ -8,7 +8,6 @@ import 'package:firepin_ui/core/storage/token_storage.dart';
 import 'package:firepin_ui/core/ui/components.dart';
 import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/home/home_screen.dart';
-import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/municipality/municipality_dashboard.dart';
 import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
@@ -149,14 +148,11 @@ void main() {
 
       await repository.loadVolunteerData();
 
-      expect(repository.incidents, hasLength(1));
-      expect(repository.incidents.single.id, '#91');
+      expect(repository.reports, hasLength(1));
+      expect(repository.reports.single.id, 91);
+      expect(repository.reports.single.status, FireReportStatus.assigned);
       expect(
-        repository.incidents.single.stage,
-        IncidentStage.responderAccepted,
-      );
-      expect(
-        repository.incidents.single.assignedVolunteer?.displayName,
+        repository.reports.single.assignedVolunteer?.fullName,
         'Assigned Volunteer',
       );
       final reportRequests = fixture.adapter.requests.where(
@@ -206,7 +202,7 @@ void main() {
     repository.dispose();
   });
 
-  test('municipality API failure has no incident mock fallback', () async {
+  test('municipality API failure has no report mock fallback', () async {
     final fixture = MunicipalityWorkflowFixture()..fail = true;
     final repository = await fixture.repository();
 
@@ -214,25 +210,13 @@ void main() {
       repository.loadVolunteerData(),
       throwsA(isA<DioException>()),
     );
-    expect(repository.incidents, isEmpty);
+    expect(repository.reports, isEmpty);
     repository.dispose();
   });
 
-  testWidgets('real report integration ignores the legacy runtime incident', (
+  testWidgets('volunteer home is backed by the real report repository', (
     tester,
   ) async {
-    final legacy = IncidentController(
-      incident: FireIncident(
-        id: 'legacy-fake',
-        stage: IncidentStage.responderEnRoute,
-        reportedAt: DateTime(2026, 9, 20),
-        fireLocation: const LocationFix(31.79, 35.25, 5),
-        reporterPhone: '0590000000',
-        photo: null,
-        events: const [],
-      ),
-    );
-    addTearDown(legacy.dispose);
     final session = OnboardingSession()
       ..accountId = '13'
       ..role = UsageRole.volunteer;
@@ -243,7 +227,7 @@ void main() {
           hasLocation: true,
           onReport: () {},
           session: session,
-          incidentController: legacy,
+          onLogout: () async {},
           reportRepository: MutableWorkflowRepository(),
           location: const WorkflowLocation(),
         ),
@@ -251,7 +235,6 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('volunteer-ready')), findsOneWidget);
-    expect(find.textContaining('legacy-fake'), findsNothing);
   });
 }
 

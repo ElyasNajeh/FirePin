@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 enum UsageRole { citizen, volunteer }
 
 enum AccountDestination { home, volunteerWarning, pendingApproval }
@@ -11,13 +9,11 @@ class IdentityData {
     required this.fullName,
     required this.identityNumber,
     required this.birthDate,
-    required this.gender,
     required this.address,
   });
   final String fullName;
   final String identityNumber;
   final String birthDate;
-  final String gender;
   final String address;
 }
 
@@ -60,10 +56,9 @@ bool isValidPhone(String input) {
       RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(phone);
 }
 
-/// Ephemeral demo session. No storage, logging, or network serialization.
+/// Ephemeral registration and authenticated-shell view state.
 class OnboardingSession {
   String accountId = '';
-  Uint8List? identityImage;
   IdentityData? identity;
   String phone = '';
   LocationFix? location;
@@ -116,7 +111,6 @@ class OnboardingSession {
 
   void clearSensitiveData() {
     accountId = '';
-    identityImage = null;
     identity = null;
     phone = '';
     _pin = null;

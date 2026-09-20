@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:firepin_ui/features/home/home_screen.dart';
-import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/municipality_selection_screen.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
@@ -34,25 +33,17 @@ void main() {
     fullName: 'أحمد محمد عبد الله',
     identityNumber: '123456789',
     birthDate: '14 / 05 / 1998',
-    gender: 'ذكر',
     address: 'القدس — الطور',
   );
-  IncidentController demoIncident({bool accepted = false}) {
-    final controller = IncidentController()
-      ..report(
-        location: const LocationFix(31.78, 35.24, 10),
-        reporterPhone: '0591111111',
-        photo: testPhoto,
-      );
-    if (accepted) {
-      controller.acceptByVolunteer(
-        volunteerId: 'user-volunteer',
-        displayName: 'ليان أحمد صالح',
-        phone: '0592223344',
-      );
-    }
-    return controller;
-  }
+  final citizenSession = OnboardingSession()
+    ..accountId = 'user-citizen'
+    ..identity = identity
+    ..phone = '0591234567';
+  final volunteerSession = OnboardingSession()
+    ..accountId = 'user-volunteer'
+    ..identity = identity
+    ..phone = '0592223344'
+    ..role = UsageRole.volunteer;
 
   final pages = <String, Widget Function()>{
     '01_welcome': () => WelcomeScreen(onStart: () {}),
@@ -61,68 +52,61 @@ void main() {
       onGranted: () {},
       onBack: () {},
     ),
-    '03_identity_camera': () => IdentityCaptureScreen(
-      services: services,
-      onVerified: (_, _) {},
+    '03_identity_capture': () => IdentityCaptureScreen(
+      cameraFactory: services.camera,
+      permissions: services.permissions,
+      processor: services.identityProcessor,
+      onExtracted: (_) {},
       onBack: () {},
     ),
-    '04_identity_success': () => IdentitySuccessScreen(onContinue: () {}),
-    '05_identity_review': () => IdentityReviewScreen(
-      identity: identity,
-      image: testPhoto,
-      onContinue: () {},
+    '04_identity_details': () => IdentityDetailsScreen(
+      initialData: identity,
+      onContinue: (_) {},
       onBack: () {},
     ),
-    '06_phone': () => PhoneNumberScreen(onContinue: (_) {}, onBack: () {}),
-    '07_otp': () =>
-        OtpScreen(otp: services.otp, phone: '059 123 4567', onVerified: () {}),
-    '08_phone_success': () => PhoneSuccessScreen(onContinue: () {}),
-    '09_pin': () =>
+    '05_phone': () => PhoneNumberScreen(onContinue: (_) {}, onBack: () {}),
+    '06_pin': () =>
         PinScreen(session: session, onContinue: () {}, onBack: () {}),
-    '10_location': () => LocationPermissionScreen(
+    '07_location': () => LocationPermissionScreen(
       service: services.location,
       onContinue: (_) {},
       onBack: () {},
     ),
-    '11_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
-    '12_volunteer': () => RoleSelectionScreen(
+    '08_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
+    '09_volunteer': () => RoleSelectionScreen(
       initialRole: UsageRole.volunteer,
       onContinue: (_) {},
       onBack: () {},
     ),
-    '12a_municipality_selection': () => MunicipalitySelectionScreen(
+    '10_municipality_selection': () => MunicipalitySelectionScreen(
       repository: FakeMunicipalityDirectoryRepository(),
       onContinue: (_) {},
       onBack: () {},
     ),
-    '13_warning': () => VolunteerWarningScreen(
+    '11_warning': () => VolunteerWarningScreen(
       service: services.volunteer,
       municipalityId: 101,
       onSubmitted: (_) async {},
       onBack: () {},
     ),
-    '14_pending': () => const VolunteerPendingScreen(),
-    '15_home': () => HomeScreen(hasLocation: true, onReport: () {}),
-    '17_nearby_alert': () => HomeScreen(
+    '12_pending': () => const VolunteerPendingScreen(),
+    '13_citizen_home': () => HomeScreen(
       hasLocation: true,
       onReport: () {},
-      incidentController: demoIncident(),
+      session: citizenSession,
+      onLogout: () async {},
+      reportRepository: services.reportRepository,
+      location: services.location,
     ),
-    '18_reporter_en_route': () => HomeScreen(
+    '14_volunteer_home': () => HomeScreen(
       hasLocation: true,
       onReport: () {},
-      session: OnboardingSession()..phone = '0591111111',
-      incidentController: demoIncident(accepted: true),
+      session: volunteerSession,
+      onLogout: () async {},
+      reportRepository: services.reportRepository,
+      location: services.location,
     ),
-    '19_volunteer_route': () => HomeScreen(
-      hasLocation: true,
-      onReport: () {},
-      session: OnboardingSession()
-        ..accountId = 'user-volunteer'
-        ..role = UsageRole.volunteer,
-      incidentController: demoIncident(accepted: true),
-    ),
-    '16_fire_camera': () => FireCameraScreen(
+    '15_fire_camera': () => FireCameraScreen(
       services: services,
       session: session,
       onSubmitted: (_) {},

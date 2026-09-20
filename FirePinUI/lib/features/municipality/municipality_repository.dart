@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../../core/network/api_client.dart';
-import '../incidents/incident_controller.dart';
 import '../onboarding/onboarding_models.dart';
+import '../report/fire_report_repository.dart';
 
 class MunicipalityDirectoryEntry {
   const MunicipalityDirectoryEntry({
@@ -99,10 +99,10 @@ class VolunteerRecord {
   final DateTime joinedAt;
 }
 
-class MunicipalityIncidentRecord {
-  const MunicipalityIncidentRecord({
+class MunicipalityFireReport {
+  const MunicipalityFireReport({
     required this.id,
-    required this.stage,
+    required this.status,
     required this.reportedAt,
     required this.reporterName,
     required this.reporterPhone,
@@ -111,12 +111,10 @@ class MunicipalityIncidentRecord {
     required this.latitude,
     required this.longitude,
     required this.municipalityName,
-    required this.events,
     this.assignedVolunteer,
-    this.photo,
   });
-  final String id;
-  final IncidentStage stage;
+  final int id;
+  final FireReportStatus status;
   final DateTime reportedAt;
   final String reporterName;
   final String reporterPhone;
@@ -125,20 +123,19 @@ class MunicipalityIncidentRecord {
   final double latitude;
   final double longitude;
   final String municipalityName;
-  final List<IncidentEvent> events;
-  final VolunteerResponse? assignedVolunteer;
-  final Uint8List? photo;
-  bool get isResolved => stage == IncidentStage.resolved;
+  final AssignedVolunteer? assignedVolunteer;
+  bool get isResolved => status == FireReportStatus.resolved;
 }
 
 abstract interface class MunicipalityRepository implements Listenable {
   List<VolunteerApplicationRecord> get applications;
   List<VolunteerRecord> get volunteers;
-  List<MunicipalityIncidentRecord> get incidents;
+  List<MunicipalityFireReport> get reports;
   bool get hasSyncError;
   bool get isVolunteerDataLoading;
   Object? get volunteerDataError;
   Future<void> loadVolunteerData();
+  Future<MunicipalityFireReport> getReport(int reportId);
   Future<void> acceptApplication(int id);
   Future<void> rejectApplication(int id);
 }
@@ -149,7 +146,7 @@ class MunicipalityOperationsRepository extends ChangeNotifier
   final ApiClient _api;
   List<VolunteerApplicationRecord> _applications = const [];
   List<VolunteerRecord> _volunteers = const [];
-  List<MunicipalityIncidentRecord> _incidents = const [];
+  List<MunicipalityFireReport> _reports = const [];
   bool _isVolunteerDataLoading = false;
   Object? _volunteerDataError;
 
@@ -159,8 +156,7 @@ class MunicipalityOperationsRepository extends ChangeNotifier
   @override
   List<VolunteerRecord> get volunteers => List.unmodifiable(_volunteers);
   @override
-  List<MunicipalityIncidentRecord> get incidents =>
-      List.unmodifiable(_incidents);
+  List<MunicipalityFireReport> get reports => List.unmodifiable(_reports);
   @override
   bool get hasSyncError => _volunteerDataError != null;
   @override
@@ -193,7 +189,7 @@ class MunicipalityOperationsRepository extends ChangeNotifier
     _volunteerDataError = null;
     _applications = const [];
     _volunteers = const [];
-    _incidents = const [];
+    _reports = const [];
     notifyListeners();
     try {
       final results = await Future.wait([
@@ -203,7 +199,7 @@ class MunicipalityOperationsRepository extends ChangeNotifier
       ]);
       _applications = results[0] as List<VolunteerApplicationRecord>;
       _volunteers = results[1] as List<VolunteerRecord>;
-      _incidents = results[2] as List<MunicipalityIncidentRecord>;
+      _reports = results[2] as List<MunicipalityFireReport>;
     } on Object catch (error) {
       _volunteerDataError = error;
       rethrow;
@@ -224,12 +220,25 @@ class MunicipalityOperationsRepository extends ChangeNotifier
   Future<List<VolunteerRecord>> _loadVolunteers() async => List.unmodifiable(
     (await _loadAll('/municipalities/auth/volunteers')).map(_volunteerFromJson),
   );
-  Future<List<MunicipalityIncidentRecord>> _loadReports() async =>
+  Future<List<MunicipalityFireReport>> _loadReports() async =>
       List.unmodifiable(
         (await _loadAll(
           '/municipalities/auth/fire-reports',
         )).map(_reportFromJson),
       );
+
+  @override
+  Future<MunicipalityFireReport> getReport(int reportId) async {
+    final response = await _api.get<Map<String, dynamic>>(
+      '/municipalities/auth/fire-reports/$reportId',
+      requiresAuth: true,
+    );
+    final data = response.data;
+    if (data == null) {
+      throw const FormatException('Invalid municipality fire report');
+    }
+    return _reportFromJson(data);
+  }
 
   VolunteerApplicationRecord _applicationFromJson(Map<String, dynamic> json) {
     final user = json['user'];
@@ -266,7 +275,7 @@ class MunicipalityOperationsRepository extends ChangeNotifier
         joinedAt: DateTime.parse(json['created_at'] as String),
       );
 
-  MunicipalityIncidentRecord _reportFromJson(Map<String, dynamic> json) {
+  MunicipalityFireReport _reportFromJson(Map<String, dynamic> json) {
     final reporter = json['reporter'];
     final municipality = json['municipality'];
     if (reporter is! Map<String, dynamic> ||
@@ -274,31 +283,29 @@ class MunicipalityOperationsRepository extends ChangeNotifier
       throw const FormatException('Invalid municipality fire report');
     }
     final reportedAt = DateTime.parse(json['reported_at'] as String);
-    final updatedAt = DateTime.parse(json['updated_at'] as String);
-    final stage = switch (json['status']) {
-      'pending' => IncidentStage.waitingForResponder,
-      'assigned' => IncidentStage.responderAccepted,
-      'resolved' => IncidentStage.resolved,
+    final status = switch (json['status']) {
+      'pending' => FireReportStatus.pending,
+      'assigned' => FireReportStatus.assigned,
+      'resolved' => FireReportStatus.resolved,
       _ => throw const FormatException('Invalid fire report status'),
     };
-    VolunteerResponse? assignedVolunteer;
+    AssignedVolunteer? assignedVolunteer;
     final assigned = json['assigned_volunteer'];
     if (assigned is Map<String, dynamic>) {
       final user = assigned['user'];
       if (user is! Map<String, dynamic>) {
         throw const FormatException('Invalid assigned volunteer');
       }
-      assignedVolunteer = VolunteerResponse(
-        volunteerId: _int(assigned['id']).toString(),
-        state: VolunteerResponseState.responding,
-        updatedAt: updatedAt,
-        displayName: user['full_name'] as String,
+      assignedVolunteer = AssignedVolunteer(
+        id: _int(assigned['id']),
+        userId: _int(user['id']),
+        fullName: user['full_name'] as String,
         phone: user['phone'] as String,
       );
     }
-    return MunicipalityIncidentRecord(
-      id: '#${_int(json['id'])}',
-      stage: stage,
+    return MunicipalityFireReport(
+      id: _int(json['id']),
+      status: status,
       reportedAt: reportedAt,
       reporterName: reporter['full_name'] as String,
       reporterPhone: reporter['phone'] as String,
@@ -308,13 +315,6 @@ class MunicipalityOperationsRepository extends ChangeNotifier
       longitude: _double(json['longitude']),
       municipalityName: municipality['name'] as String,
       assignedVolunteer: assignedVolunteer,
-      events: [
-        IncidentEvent(stage: IncidentStage.reported, at: reportedAt),
-        if (stage != IncidentStage.waitingForResponder)
-          IncidentEvent(stage: IncidentStage.responderAccepted, at: updatedAt),
-        if (stage == IncidentStage.resolved)
-          IncidentEvent(stage: IncidentStage.resolved, at: updatedAt),
-      ],
     );
   }
 }

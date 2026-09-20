@@ -8,13 +8,11 @@ class AccountScreen extends StatelessWidget {
   const AccountScreen({
     super.key,
     required this.session,
-    required this.onChangePin,
     required this.onLogout,
     this.onApplyVolunteer,
   });
 
   final OnboardingSession session;
-  final VoidCallback onChangePin;
   final VoidCallback onLogout;
   final VoidCallback? onApplyVolunteer;
 
@@ -25,7 +23,7 @@ class AccountScreen extends StatelessWidget {
         session.role == UsageRole.volunteer &&
         session.applicationStatus != ApplicationStatus.pending &&
         session.applicationStatus != ApplicationStatus.rejected;
-    final name = identity?.fullName ?? 'رمزي أبو فلاح';
+    final name = _optional(identity?.fullName);
     final initial = name.trim().isEmpty ? 'ر' : name.trim().characters.first;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -136,7 +134,7 @@ class AccountScreen extends StatelessWidget {
                         style: AppType.text(14, weight: FontWeight.w700),
                       ),
                       Text(
-                        'نطاق الاستجابة: ${identity?.address ?? 'القدس — الطور'}',
+                        'تصل إليك بلاغات البلدية المرتبط بها حساب التطوع.',
                         style: AppType.text(11, color: AppColors.textSecondary),
                       ),
                     ],
@@ -157,20 +155,18 @@ class AccountScreen extends StatelessWidget {
                 firstLabel: 'رقم الهوية',
                 firstValue: _maskedIdentity(identity?.identityNumber),
                 secondLabel: 'رقم الهاتف',
-                secondValue: session.phone.isEmpty
-                    ? '059 123 4567'
-                    : session.phone,
+                secondValue: _optional(session.phone),
               ),
               const SizedBox(height: 12),
               _DetailsRow(
                 firstLabel: 'العنوان',
-                firstValue: identity?.address ?? 'القدس — الطور',
+                firstValue: _optional(identity?.address),
                 secondLabel: 'تاريخ الميلاد',
-                secondValue: identity?.birthDate ?? '14 / 05 / 1998',
+                secondValue: _optional(identity?.birthDate),
               ),
               const SizedBox(height: 10),
               Text(
-                'البيانات المستخرجة من الهوية غير قابلة للتعديل مباشرة.',
+                'تعرض هذه الصفحة بيانات الحساب المسجّلة لدى الخادم.',
                 style: AppType.text(11, color: AppColors.textSecondary),
               ),
             ],
@@ -209,35 +205,16 @@ class AccountScreen extends StatelessWidget {
                   ),
                 ],
               ),
-              const Divider(color: AppColors.outline),
-              Text(
-                'الموقع ✓   الإشعارات ✓   الكاميرا ✓',
-                style: AppType.text(12, color: AppColors.primary),
-              ),
             ],
           ),
         ),
         const SizedBox(height: 8),
         SurfaceCard(
           padding: 10,
-          child: Row(
-            children: [
-              Expanded(
-                child: _AccountAction(
-                  label: 'تسجيل الخروج',
-                  color: AppColors.emergency,
-                  onTap: onLogout,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _AccountAction(
-                  label: 'تغيير رمز الدخول',
-                  color: AppColors.primary,
-                  onTap: onChangePin,
-                ),
-              ),
-            ],
+          child: _AccountAction(
+            label: 'تسجيل الخروج',
+            color: AppColors.emergency,
+            onTap: onLogout,
           ),
         ),
       ],
@@ -245,9 +222,12 @@ class AccountScreen extends StatelessWidget {
   }
 
   String _maskedIdentity(String? value) {
-    if (value == null || value.length < 2) return '*******89';
+    if (value == null || value.length < 2) return 'غير متاح';
     return '${List.filled(value.length - 2, '*').join()}${value.substring(value.length - 2)}';
   }
+
+  String _optional(String? value) =>
+      value?.trim().isNotEmpty == true ? value!.trim() : 'غير متاح';
 }
 
 class _DetailsRow extends StatelessWidget {

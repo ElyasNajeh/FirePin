@@ -82,7 +82,7 @@ class _CameraPermissionScreenState extends State<CameraPermissionScreen> {
         const PageTitle('السماح باستخدام الكاميرا'),
         const SizedBox(height: 8),
         Text(
-          'نحتاج الكاميرا لتصوير بطاقة الهوية واستخراج البيانات اللازمة للتحقق.',
+          'نحتاج الكاميرا لتصوير بطاقة الهوية واستخراج بيانات التسجيل.',
           style: AppType.muted,
         ),
         const SizedBox(height: 42),
@@ -98,7 +98,7 @@ class _CameraPermissionScreenState extends State<CameraPermissionScreen> {
               ),
               const SizedBox(height: 14),
               Text(
-                '• تُستخدم الصورة لاستخراج بيانات الهوية.',
+                '• تُستخدم الصورة لاستخراج بيانات الهوية فقط، ولا تُرفع أو تُحفظ.',
                 style: AppType.text(15),
               ),
               const SizedBox(height: 14),

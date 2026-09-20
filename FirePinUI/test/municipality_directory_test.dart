@@ -77,7 +77,6 @@ void main() {
 
     services.authController.dispose();
     (services.operations as MunicipalityOperationsRepository).dispose();
-    services.incidents.dispose();
   });
 
   test('onboarding session preserves the selected backend municipality ID', () {

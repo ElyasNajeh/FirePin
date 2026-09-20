@@ -3,8 +3,6 @@ import '../../app/app_services.dart';
 import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
 import '../auth/login_screens.dart';
-import '../home/home_screen.dart';
-import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
 import 'municipality_selection_screen.dart';
@@ -18,20 +16,15 @@ enum OnboardingStep {
   userLogin,
   municipalityLogin,
   cameraPermission,
-  capture,
-  identitySuccess,
-  review,
+  identityCapture,
+  identity,
   phone,
-  otp,
-  phoneSuccess,
   pin,
   location,
   role,
   municipalitySelection,
   volunteerWarning,
   pending,
-  home,
-  fireCamera,
 }
 
 /// Navigation owns session state; widgets depend only on narrow callbacks/services.
@@ -80,26 +73,26 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     ),
     OnboardingStep.cameraPermission => CameraPermissionScreen(
       permissions: widget.services.permissions,
-      onGranted: () => _go(OnboardingStep.capture),
       onBack: _back,
+      onGranted: () => _go(OnboardingStep.identityCapture),
     ),
-    OnboardingStep.capture => IdentityCaptureScreen(
-      services: widget.services,
+    OnboardingStep.identityCapture => IdentityCaptureScreen(
+      cameraFactory: widget.services.camera,
+      permissions: widget.services.permissions,
+      processor: widget.services.identityProcessor,
       onBack: _back,
-      onVerified: (image, identity) {
-        _session.identityImage = image;
+      onExtracted: (identity) {
         _session.identity = identity;
-        _go(OnboardingStep.identitySuccess);
+        _go(OnboardingStep.identity);
       },
     ),
-    OnboardingStep.identitySuccess => IdentitySuccessScreen(
-      onContinue: () => _go(OnboardingStep.review, replace: true),
-    ),
-    OnboardingStep.review => IdentityReviewScreen(
-      identity: _session.identity!,
-      image: _session.identityImage!,
+    OnboardingStep.identity => IdentityDetailsScreen(
       onBack: _back,
-      onContinue: () => _go(OnboardingStep.phone),
+      initialData: _session.identity,
+      onContinue: (identity) {
+        _session.identity = identity;
+        _go(OnboardingStep.phone);
+      },
     ),
     OnboardingStep.phone => PhoneNumberScreen(
       onBack: _back,
@@ -107,14 +100,6 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
         _session.phone = phone;
         _go(OnboardingStep.pin);
       },
-    ),
-    OnboardingStep.otp => OtpScreen(
-      otp: widget.services.otp,
-      phone: _session.phone,
-      onVerified: () => _go(OnboardingStep.phoneSuccess, replace: true),
-    ),
-    OnboardingStep.phoneSuccess => PhoneSuccessScreen(
-      onContinue: () => _go(OnboardingStep.pin, replace: true),
     ),
     OnboardingStep.pin => PinScreen(
       session: _session,
@@ -166,23 +151,6 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       },
     ),
     OnboardingStep.pending => const VolunteerPendingScreen(),
-    OnboardingStep.home => HomeScreen(
-      hasLocation: _session.location != null,
-      onReport: () => _go(OnboardingStep.fireCamera),
-      session: _session,
-      incidentController: widget.services.incidents,
-      reportRepository: widget.services.reportRepository,
-      location: widget.services.location,
-    ),
-    OnboardingStep.fireCamera => FireCameraScreen(
-      services: widget.services,
-      session: _session,
-      onClose: _back,
-      onSubmitted: (_) async {
-        if (!mounted) return;
-        _go(OnboardingStep.home, clear: true);
-      },
-    ),
   };
 
   Future<void> _completeRegistration() async {
