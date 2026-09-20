@@ -1,184 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/services/camera_service.dart';
-import '../../core/services/device_services.dart';
 import '../../core/ui/components.dart';
-import '../../core/ui/live_camera.dart';
 import '../../theme/app_theme.dart';
-import 'identity_document_processor.dart';
 import 'onboarding_models.dart';
-
-class IdentityCaptureScreen extends StatefulWidget {
-  const IdentityCaptureScreen({
-    super.key,
-    required this.cameraFactory,
-    required this.permissions,
-    required this.processor,
-    required this.onExtracted,
-    this.onBack,
-  });
-
-  final CameraSourceFactory cameraFactory;
-  final DevicePermissions permissions;
-  final IdentityDocumentProcessor processor;
-  final ValueChanged<IdentityData> onExtracted;
-  final VoidCallback? onBack;
-
-  @override
-  State<IdentityCaptureScreen> createState() => _IdentityCaptureScreenState();
-}
-
-class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
-  final _camera = GlobalKey<LiveCameraState>();
-  bool _ready = false;
-  bool _processing = false;
-  String? _error;
-
-  Future<void> _capture() async {
-    if (!_ready || _processing) return;
-    setState(() {
-      _processing = true;
-      _error = null;
-    });
-    try {
-      final image = await _camera.currentState?.capture();
-      if (image == null) {
-        throw const IdentityScanFailure(
-          'تعذّر التقاط الصورة. ثبّت الهاتف وأعد المحاولة.',
-        );
-      }
-      final identity = await widget.processor.extract(image);
-      if (mounted) widget.onExtracted(identity);
-    } on IdentityScanFailure catch (error) {
-      if (mounted) setState(() => _error = error.message);
-    } on Object {
-      if (mounted) {
-        setState(
-          () => _error =
-              'تعذّرت معالجة الهوية. تأكد من وضوح البطاقة وأعد التصوير.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _processing = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    backgroundColor: Colors.black,
-    body: Stack(
-      fit: StackFit.expand,
-      children: [
-        LiveCamera(
-          key: _camera,
-          factory: widget.cameraFactory,
-          active: !_processing,
-          onReady: (ready) {
-            if (mounted && _ready != ready) setState(() => _ready = ready);
-          },
-          onSettings: () {
-            widget.permissions.openAppSettings();
-          },
-        ),
-        ColoredBox(color: Colors.black.withValues(alpha: 0.20)),
-        SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  children: [
-                    IconButton(
-                      key: const ValueKey('identity-capture-back'),
-                      onPressed: _processing ? null : widget.onBack,
-                      icon: const Icon(
-                        Icons.arrow_back_ios_new,
-                        color: Colors.white,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'تصوير بطاقة الهوية الفلسطينية',
-                        textAlign: TextAlign.center,
-                        style: AppType.text(
-                          18,
-                          weight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 48),
-                  ],
-                ),
-              ),
-              const Spacer(),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                child: AspectRatio(
-                  aspectRatio: 1.58,
-                  child: Container(
-                    key: const ValueKey('identity-card-frame'),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white, width: 3),
-                    ),
-                  ),
-                ),
-              ),
-              const Spacer(),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
-                color: Colors.black.withValues(alpha: 0.72),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'ضع الوجه الأمامي للهوية داخل الإطار، وتجنب اللمعان والظلال.',
-                      textAlign: TextAlign.center,
-                      style: AppType.text(13, color: Colors.white),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        _error!,
-                        key: const ValueKey('identity-scan-error'),
-                        textAlign: TextAlign.center,
-                        style: AppType.text(
-                          13,
-                          weight: FontWeight.w700,
-                          color: const Color(0xFFFFB4AB),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 14),
-                    AppButton(
-                      _processing ? 'جارٍ قراءة الهوية...' : 'التقاط الهوية',
-                      key: const ValueKey('capture-identity'),
-                      onPressed: !_ready || _processing ? null : _capture,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
 
 class IdentityDetailsScreen extends StatefulWidget {
   const IdentityDetailsScreen({
     super.key,
     required this.onContinue,
-    this.initialData,
     this.onBack,
   });
 
   final ValueChanged<IdentityData> onContinue;
-  final IdentityData? initialData;
   final VoidCallback? onBack;
 
   @override
@@ -186,18 +20,9 @@ class IdentityDetailsScreen extends StatefulWidget {
 }
 
 class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
-  late final _fullName = TextEditingController(
-    text: widget.initialData?.fullName ?? '',
-  );
-  late final _nationalId = TextEditingController(
-    text: widget.initialData?.identityNumber ?? '',
-  );
-  late final _birthDate = TextEditingController(
-    text: widget.initialData?.birthDate ?? '',
-  );
-  late final _address = TextEditingController(
-    text: widget.initialData?.address ?? '',
-  );
+  final _fullName = TextEditingController();
+  final _nationalId = TextEditingController();
+  final _birthDate = TextEditingController();
   String? _error;
 
   void _clearError() {
@@ -226,7 +51,7 @@ class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
         fullName: fullName,
         identityNumber: nationalId,
         birthDate: birthDate,
-        address: _address.text.trim(),
+        address: '',
       ),
     );
   }
@@ -252,7 +77,6 @@ class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
     _fullName.dispose();
     _nationalId.dispose();
     _birthDate.dispose();
-    _address.dispose();
     super.dispose();
   }
 
@@ -263,10 +87,7 @@ class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
       const SizedBox(height: 32),
       const PageTitle('بيانات الحساب'),
       const SizedBox(height: 8),
-      Text(
-        'راجع البيانات المستخرجة من الهوية وصححها عند الحاجة.',
-        style: AppType.body,
-      ),
+      Text('أدخل بياناتك كما تظهر في بطاقة الهوية.', style: AppType.body),
       const SizedBox(height: 26),
       _Field(
         key: const ValueKey('identity-full-name'),
@@ -297,15 +118,6 @@ class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
         textInputAction: TextInputAction.next,
         onChanged: _clearError,
       ),
-      const SizedBox(height: 14),
-      _Field(
-        key: const ValueKey('identity-address'),
-        controller: _address,
-        label: 'العنوان (اختياري)',
-        textInputAction: TextInputAction.done,
-        onChanged: _clearError,
-        onSubmitted: _submit,
-      ),
       InlineMessage(_error),
       const SizedBox(height: 30),
       AppButton('متابعة', onPressed: _submit),
@@ -324,7 +136,6 @@ class _Field extends StatelessWidget {
     this.textDirection,
     this.maxLength,
     this.textInputAction,
-    this.onSubmitted,
   });
 
   final TextEditingController controller;
@@ -335,7 +146,6 @@ class _Field extends StatelessWidget {
   final TextDirection? textDirection;
   final int? maxLength;
   final TextInputAction? textInputAction;
-  final VoidCallback? onSubmitted;
 
   @override
   Widget build(BuildContext context) => TextField(
@@ -359,6 +169,5 @@ class _Field extends StatelessWidget {
       counterText: '',
     ),
     onChanged: (_) => onChanged(),
-    onSubmitted: onSubmitted == null ? null : (_) => onSubmitted!(),
   );
 }

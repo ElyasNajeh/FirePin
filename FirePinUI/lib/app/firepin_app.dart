@@ -29,6 +29,8 @@ class _FirePinAppState extends State<FirePinApp> {
   late final _services = widget.services ?? AppServices();
   bool _reporting = false;
   bool _applyingVolunteer = false;
+  LocationFix? _currentUserLocation;
+  String? _locationUserId;
   final _navigatorKey = GlobalKey<NavigatorState>();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   final List<String> _pendingReportIds = [];
@@ -203,6 +205,10 @@ class _FirePinAppState extends State<FirePinApp> {
 
   Widget _buildUserExperience() {
     final account = _services.authController.user!;
+    if (_locationUserId != account.id) {
+      _locationUserId = account.id;
+      _currentUserLocation = null;
+    }
     final session = OnboardingSession()
       ..accountId = account.id
       ..identity = IdentityData(
@@ -213,7 +219,8 @@ class _FirePinAppState extends State<FirePinApp> {
       )
       ..phone = account.phone
       ..role = account.role
-      ..applicationStatus = account.applicationStatus;
+      ..applicationStatus = account.applicationStatus
+      ..location = _currentUserLocation;
     if (_applyingVolunteer) {
       return VolunteerApplicationFlow(
         directory: _services.municipalityDirectory,
@@ -230,21 +237,41 @@ class _FirePinAppState extends State<FirePinApp> {
         services: _services,
         session: session,
         onClose: () => setState(() => _reporting = false),
-        onSubmitted: (_) async {
+        onSubmitted: (report) async {
           if (!mounted) return;
           setState(() => _reporting = false);
+          await _navigatorKey.currentState?.push<void>(
+            MaterialPageRoute(
+              settings: RouteSettings(
+                name: '/fire-reports/${report.id}/created',
+              ),
+              builder: (_) => FireReportDetailScreen(
+                report: report,
+                volunteer: false,
+                repository: _services.reportRepository,
+                location: _services.location,
+                viewerUserId: account.id,
+              ),
+            ),
+          );
         },
       );
     }
     return HomeScreen(
-      hasLocation: session.location != null,
       session: session,
       reportRepository: _services.reportRepository,
       location: _services.location,
-      onReport: () => setState(() => _reporting = true),
+      onReport: (location) {
+        setState(() {
+          _currentUserLocation = location;
+          _reporting = true;
+        });
+      },
       onLogout: () async {
         _reporting = false;
         _applyingVolunteer = false;
+        _currentUserLocation = null;
+        _locationUserId = null;
         await _services.authController.logout();
       },
       onApplyVolunteer: () => setState(() => _applyingVolunteer = true),

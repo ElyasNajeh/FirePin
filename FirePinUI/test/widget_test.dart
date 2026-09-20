@@ -33,12 +33,19 @@ void mobileSize(WidgetTester tester, {Size size = const Size(390, 844)}) {
 Future<void> enterIdentity(WidgetTester tester) async {
   await tester.pump();
   await tapLabel(tester, 'إنشاء حساب جديد');
-  expect(find.byType(CameraPermissionScreen), findsOneWidget);
-  await tapLabel(tester, 'السماح باستخدام الكاميرا');
-  await tester.pump();
-  expect(find.byType(IdentityCaptureScreen), findsOneWidget);
-  await tapLabel(tester, 'التقاط الهوية');
   expect(find.byType(IdentityDetailsScreen), findsOneWidget);
+  await tester.enterText(
+    find.byKey(const ValueKey('identity-full-name')),
+    'أحمد محمد عبد الله',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey('identity-national-id')),
+    '123456789',
+  );
+  await tester.enterText(
+    find.byKey(const ValueKey('identity-birth-date')),
+    '14/05/1998',
+  );
   await tapLabel(tester, 'متابعة');
   expect(find.byType(PhoneNumberScreen), findsOneWidget);
 }
@@ -56,7 +63,6 @@ Future<void> reachRoleSelection(WidgetTester tester) async {
     '0123',
   );
   await tapLabel(tester, 'حفظ رمز الدخول');
-  await tapLabel(tester, 'السماح بالوصول إلى الموقع');
   expect(find.byType(RoleSelectionScreen), findsOneWidget);
 }
 
@@ -134,9 +140,12 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('fire-shutter')));
-    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
+    expect(reports.submissions, 0);
+    await tapLabel(tester, 'إرسال البلاغ بالصور');
     expect(reports.submissions, 1);
     expect(reports.hasPhoto, isTrue);
+    expect(reports.imageCount, 1);
     expect(find.byType(HomeScreen), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

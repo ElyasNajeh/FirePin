@@ -7,7 +7,6 @@ import '../welcome/welcome_screen.dart';
 import 'identity_screens.dart';
 import 'municipality_selection_screen.dart';
 import 'onboarding_models.dart';
-import 'permission_screens.dart';
 import 'phone_pin_screens.dart';
 import 'role_screens.dart';
 
@@ -15,12 +14,9 @@ enum OnboardingStep {
   welcome,
   userLogin,
   municipalityLogin,
-  cameraPermission,
-  identityCapture,
   identity,
   phone,
   pin,
-  location,
   role,
   municipalitySelection,
   volunteerWarning,
@@ -58,37 +54,21 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
   void _back() => _navigator.currentState!.maybePop();
   Widget _screen(OnboardingStep step) => switch (step) {
     OnboardingStep.welcome => WelcomeScreen(
-      onStart: () => _go(OnboardingStep.cameraPermission),
+      onStart: () => _go(OnboardingStep.identity),
       onLogin: () => _go(OnboardingStep.userLogin),
       onMunicipalityLogin: () => _go(OnboardingStep.municipalityLogin),
     ),
     OnboardingStep.userLogin => UserLoginScreen(
       auth: widget.services.authController,
       onBack: _back,
-      onCreateAccount: () => _go(OnboardingStep.cameraPermission),
+      onCreateAccount: () => _go(OnboardingStep.identity),
     ),
     OnboardingStep.municipalityLogin => MunicipalityLoginScreen(
       auth: widget.services.authController,
       onBack: _back,
     ),
-    OnboardingStep.cameraPermission => CameraPermissionScreen(
-      permissions: widget.services.permissions,
-      onBack: _back,
-      onGranted: () => _go(OnboardingStep.identityCapture),
-    ),
-    OnboardingStep.identityCapture => IdentityCaptureScreen(
-      cameraFactory: widget.services.camera,
-      permissions: widget.services.permissions,
-      processor: widget.services.identityProcessor,
-      onBack: _back,
-      onExtracted: (identity) {
-        _session.identity = identity;
-        _go(OnboardingStep.identity);
-      },
-    ),
     OnboardingStep.identity => IdentityDetailsScreen(
       onBack: _back,
-      initialData: _session.identity,
       onContinue: (identity) {
         _session.identity = identity;
         _go(OnboardingStep.phone);
@@ -104,15 +84,7 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
     OnboardingStep.pin => PinScreen(
       session: _session,
       onBack: _back,
-      onContinue: () => _go(OnboardingStep.location),
-    ),
-    OnboardingStep.location => LocationPermissionScreen(
-      service: widget.services.location,
-      onBack: _back,
-      onContinue: (fix) {
-        _session.location = fix;
-        _go(OnboardingStep.role);
-      },
+      onContinue: () => _go(OnboardingStep.role),
     ),
     OnboardingStep.role => RoleSelectionScreen(
       initialRole: _session.role,

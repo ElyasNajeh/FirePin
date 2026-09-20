@@ -22,12 +22,13 @@ void main() {
     (services.operations as ChangeNotifier).dispose();
   });
 
-  test('one submission sends real GPS and PIN exactly once', () async {
+  test('submission normalizes real GPS precision and sends PIN once', () async {
     final fixture = ReportFixture();
     final repository = await fixture.repository();
 
     await repository.submit(
-      location: const LocationFix(31.781234, 35.241234, 7),
+      location: const LocationFix(31.78123456, 35.24123456, 7),
+      images: const [],
       pin: '2468',
     );
 
@@ -36,30 +37,48 @@ void main() {
         .toList();
     expect(requests, hasLength(1));
     final form = requests.single.data as FormData;
-    expect(_field(form, 'latitude'), '31.781234');
-    expect(_field(form, 'longitude'), '35.241234');
+    expect(_field(form, 'latitude'), '31.781235');
+    expect(_field(form, 'longitude'), '35.241235');
     expect(_field(form, 'pin'), '2468');
     expect(form.fields.any((field) => field.key == 'municipality_id'), isFalse);
     expect(form.files, isEmpty);
     expect(requests.single.headers['Authorization'], 'Bearer access');
   });
 
-  test('multipart photo omits PIN and preserves camera bytes', () async {
+  test('one to five camera images omit PIN and preserve bytes', () async {
     final fixture = ReportFixture();
     final repository = await fixture.repository();
-    final photo = Uint8List.fromList([1, 2, 3, 4]);
+    final photos = [
+      for (var index = 0; index < 5; index++)
+        Uint8List.fromList([index, 2, 3, 4]),
+    ];
 
     await repository.submit(
       location: const LocationFix(31.7, 35.2, 4),
-      photo: photo,
+      images: photos,
     );
 
     final form = fixture.adapter.requests.single.data as FormData;
     expect(form.fields.any((field) => field.key == 'pin'), isFalse);
-    expect(form.files, hasLength(1));
-    expect(form.files.single.key, 'images');
-    expect(form.files.single.value.length, photo.length);
-    expect(form.files.single.value.filename, 'fire-report.jpg');
+    expect(form.files, hasLength(5));
+    expect(form.files.every((file) => file.key == 'images'), isTrue);
+    expect(form.files.first.value.length, photos.first.length);
+    expect(form.files.last.value.filename, 'fire-report-5.jpg');
+    expect(form.fields.any((field) => field.key == 'municipality_id'), isFalse);
+  });
+
+  test('client rejects more than five images before the API request', () async {
+    final fixture = ReportFixture();
+    final repository = await fixture.repository();
+
+    await expectLater(
+      repository.submit(
+        location: const LocationFix(31.7, 35.2, 4),
+        images: List.generate(6, (_) => Uint8List.fromList([1, 2, 3])),
+      ),
+      throwsArgumentError,
+    );
+    expect(fixture.adapter.requests, isEmpty);
   });
 
   test('real report list/detail and protected image map from API', () async {
@@ -269,11 +288,11 @@ class StaticReportRepository implements FireReportRepository {
   @override
   Future<List<FireReport>> getVolunteerReports() async => [sampleReport];
   @override
-  Future<void> submit({
-    Uint8List? photo,
+  Future<FireReport> submit({
+    required List<Uint8List> images,
     String? pin,
     required LocationFix location,
-  }) async {}
+  }) async => sampleReport;
 }
 
 class FixedLocationService implements LocationService {

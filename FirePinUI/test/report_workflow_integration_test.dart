@@ -224,8 +224,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: HomeScreen(
-          hasLocation: true,
-          onReport: () {},
+          onReport: (_) {},
           session: session,
           onLogout: () async {},
           reportRepository: MutableWorkflowRepository(),
@@ -365,11 +364,11 @@ class MutableWorkflowRepository implements FireReportRepository {
   Future<List<FireReport>> getMyReports() async => [report];
 
   @override
-  Future<void> submit({
-    Uint8List? photo,
+  Future<FireReport> submit({
+    required List<Uint8List> images,
     String? pin,
     required LocationFix location,
-  }) async {}
+  }) async => report;
 }
 
 class MunicipalityWorkflowFixture {

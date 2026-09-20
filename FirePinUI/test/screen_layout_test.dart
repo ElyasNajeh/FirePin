@@ -4,7 +4,6 @@ import 'package:firepin_ui/features/home/home_screen.dart';
 import 'package:firepin_ui/features/onboarding/identity_screens.dart';
 import 'package:firepin_ui/features/onboarding/municipality_selection_screen.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
-import 'package:firepin_ui/features/onboarding/permission_screens.dart';
 import 'package:firepin_ui/features/onboarding/phone_pin_screens.dart';
 import 'package:firepin_ui/features/onboarding/role_screens.dart';
 import 'package:firepin_ui/features/report/fire_camera_screen.dart';
@@ -47,66 +46,44 @@ void main() {
 
   final pages = <String, Widget Function()>{
     '01_welcome': () => WelcomeScreen(onStart: () {}),
-    '02_camera_permission': () => CameraPermissionScreen(
-      permissions: services.permissions,
-      onGranted: () {},
-      onBack: () {},
-    ),
-    '03_identity_capture': () => IdentityCaptureScreen(
-      cameraFactory: services.camera,
-      permissions: services.permissions,
-      processor: services.identityProcessor,
-      onExtracted: (_) {},
-      onBack: () {},
-    ),
-    '04_identity_details': () => IdentityDetailsScreen(
-      initialData: identity,
-      onContinue: (_) {},
-      onBack: () {},
-    ),
-    '05_phone': () => PhoneNumberScreen(onContinue: (_) {}, onBack: () {}),
-    '06_pin': () =>
+    '02_identity_details': () =>
+        IdentityDetailsScreen(onContinue: (_) {}, onBack: () {}),
+    '03_phone': () => PhoneNumberScreen(onContinue: (_) {}, onBack: () {}),
+    '04_pin': () =>
         PinScreen(session: session, onContinue: () {}, onBack: () {}),
-    '07_location': () => LocationPermissionScreen(
-      service: services.location,
-      onContinue: (_) {},
-      onBack: () {},
-    ),
-    '08_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
-    '09_volunteer': () => RoleSelectionScreen(
+    '05_citizen': () => RoleSelectionScreen(onContinue: (_) {}, onBack: () {}),
+    '06_volunteer': () => RoleSelectionScreen(
       initialRole: UsageRole.volunteer,
       onContinue: (_) {},
       onBack: () {},
     ),
-    '10_municipality_selection': () => MunicipalitySelectionScreen(
+    '07_municipality_selection': () => MunicipalitySelectionScreen(
       repository: FakeMunicipalityDirectoryRepository(),
       onContinue: (_) {},
       onBack: () {},
     ),
-    '11_warning': () => VolunteerWarningScreen(
+    '08_warning': () => VolunteerWarningScreen(
       service: services.volunteer,
       municipalityId: 101,
       onSubmitted: (_) async {},
       onBack: () {},
     ),
-    '12_pending': () => const VolunteerPendingScreen(),
-    '13_citizen_home': () => HomeScreen(
-      hasLocation: true,
-      onReport: () {},
+    '09_pending': () => const VolunteerPendingScreen(),
+    '10_citizen_home': () => HomeScreen(
+      onReport: (_) {},
       session: citizenSession,
       onLogout: () async {},
       reportRepository: services.reportRepository,
       location: services.location,
     ),
-    '14_volunteer_home': () => HomeScreen(
-      hasLocation: true,
-      onReport: () {},
+    '11_volunteer_home': () => HomeScreen(
+      onReport: (_) {},
       session: volunteerSession,
       onLogout: () async {},
       reportRepository: services.reportRepository,
       location: services.location,
     ),
-    '15_fire_camera': () => FireCameraScreen(
+    '12_fire_camera': () => FireCameraScreen(
       services: services,
       session: session,
       onSubmitted: (_) {},

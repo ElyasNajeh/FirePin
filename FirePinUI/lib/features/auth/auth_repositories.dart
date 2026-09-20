@@ -62,7 +62,6 @@ abstract interface class AuthRepository {
   });
   Future<UserAccount> restoreUser();
   Future<UserLoginResult> registerUser(OnboardingSession session);
-  Future<bool> verifyUserPin({required String userId, required String pin});
   Future<void> logoutUser();
   Future<void> clearLocalSession();
 }
@@ -84,7 +83,6 @@ class ApiAuthRepository implements AuthRepository {
 
   final ApiClient _api;
   final TokenStorage _storage;
-  String? _currentPin;
 
   @override
   Future<UserLoginResult> loginUser({
@@ -101,7 +99,6 @@ class ApiAuthRepository implements AuthRepository {
       );
       final tokens = _tokens(response.data);
       await _api.setSession(accessToken: tokens.$1, refreshToken: tokens.$2);
-      _currentPin = normalizeDigits(pin).trim();
       return UserLoginResult(account: await _loadAccount());
     } on Object catch (error) {
       await clearLocalSession();
@@ -192,12 +189,6 @@ class ApiAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<bool> verifyUserPin({
-    required String userId,
-    required String pin,
-  }) async => _currentPin != null && _currentPin == normalizeDigits(pin).trim();
-
-  @override
   Future<void> logoutUser() async {
     final refreshToken = await _storage.readRefreshToken();
     try {
@@ -214,7 +205,6 @@ class ApiAuthRepository implements AuthRepository {
 
   @override
   Future<void> clearLocalSession() async {
-    _currentPin = null;
     await _api.clearSession();
   }
 }

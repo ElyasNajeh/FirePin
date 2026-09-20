@@ -33,7 +33,7 @@ class ApiVolunteerApplicationService implements VolunteerApplicationService {
 
 abstract interface class FireReportService {
   Future<void> submit({
-    Uint8List? photo,
+    required List<Uint8List> images,
     String? pin,
     required LocationFix location,
   });

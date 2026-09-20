@@ -8,7 +8,6 @@ import '../features/auth/auth_repositories.dart';
 import '../features/municipality/municipality_repository.dart';
 import '../features/notifications/notification_service.dart';
 import '../features/notifications/notification_api.dart';
-import '../features/onboarding/identity_document_processor.dart';
 import '../features/onboarding/onboarding_services.dart';
 import '../features/report/fire_report_repository.dart';
 
@@ -21,7 +20,6 @@ class AppServices {
     DevicePermissions? permissions,
     LocationService? location,
     CameraSourceFactory? camera,
-    IdentityDocumentProcessor? identityProcessor,
     MunicipalityRepository? operations,
     MunicipalityDirectoryRepository? municipalityDirectory,
     AuthRepository? auth,
@@ -36,8 +34,6 @@ class AppServices {
     this.permissions = permissions ?? NativeDevicePermissions();
     this.location = location ?? NativeLocationService();
     this.camera = camera ?? NativeCameraSource.new;
-    this.identityProcessor =
-        identityProcessor ?? const TesseractIdentityDocumentProcessor();
     final storage = tokenStorage ?? TokenStorage();
     final baseUrl = resolveApiBaseUrl(override: apiBaseUrl);
     final userApi =
@@ -84,7 +80,6 @@ class AppServices {
   late final DevicePermissions permissions;
   late final LocationService location;
   late final CameraSourceFactory camera;
-  late final IdentityDocumentProcessor identityProcessor;
   late final MunicipalityRepository operations;
   late final MunicipalityDirectoryRepository municipalityDirectory;
   late final SessionRepository sessions;

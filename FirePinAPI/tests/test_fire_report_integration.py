@@ -326,6 +326,44 @@ class FireReportIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await self.create(self.user, image_count=6, pin=None)
         self.assertEqual(too_many.exception.status_code, 422)
 
+    async def test_creation_commits_before_notification_dispatch(self) -> None:
+        observed = {}
+
+        async def observe_committed_report(report: FireReport) -> None:
+            async with AsyncSessionLocal() as verification_db:
+                persisted = await verification_db.get(FireReport, report.id)
+                observed["report_id"] = persisted.id if persisted else None
+                observed["municipality_id"] = (
+                    persisted.municipality_id if persisted else None
+                )
+
+        report_uploads = uploads(1)
+        notify = AsyncMock(side_effect=observe_committed_report)
+        try:
+            with patch.object(
+                report_service.notification_service,
+                "notify_report_created",
+                notify,
+            ):
+                async with AsyncSessionLocal() as db:
+                    created = await report_service.create_report(
+                        db,
+                        self.user,
+                        FireReportCreate(
+                            latitude=Decimal("31.782000"),
+                            longitude=Decimal("35.242000"),
+                        ),
+                        report_uploads,
+                        None,
+                    )
+        finally:
+            for upload in report_uploads:
+                await upload.close()
+
+        self.assertEqual(notify.await_count, 1)
+        self.assertEqual(observed["report_id"], created.id)
+        self.assertEqual(observed["municipality_id"], self.near.id)
+
     async def test_own_reports_and_protected_image_access(self) -> None:
         mine = await self.create(self.user, image_count=1, pin=None)
         await self.create(self.other_user, pin="1357")

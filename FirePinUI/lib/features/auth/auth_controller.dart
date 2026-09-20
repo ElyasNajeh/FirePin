@@ -131,16 +131,6 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> verifyCurrentUserPin(String pin) async {
-    final currentUser = _user;
-    if (_status != AuthStatus.user ||
-        currentUser == null ||
-        !isValidLoginPin(pin)) {
-      return false;
-    }
-    return _users.verifyUserPin(userId: currentUser.id, pin: pin);
-  }
-
   Future<void> loginMunicipality(String email, String password) async {
     await _prepareForLogin();
     try {

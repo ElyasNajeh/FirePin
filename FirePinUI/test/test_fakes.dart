@@ -4,7 +4,6 @@ import 'package:firepin_ui/app/app_services.dart';
 import 'package:firepin_ui/core/services/camera_service.dart';
 import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
-import 'package:firepin_ui/features/onboarding/identity_document_processor.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
 import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
@@ -145,18 +144,6 @@ class DemoAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<bool> verifyUserPin({
-    required String userId,
-    required String pin,
-  }) async {
-    final account = _accounts.values
-        .where((item) => item.id == userId)
-        .firstOrNull;
-    return account != null &&
-        _pins[account.nationalId] == normalizeDigits(pin).trim();
-  }
-
-  @override
   Future<void> clearLocalSession() async {
     _activeNationalId = null;
     _activeRegistration = null;
@@ -254,44 +241,26 @@ class FakeCamera implements CameraSource {
   }
 }
 
-class FakeIdentityDocumentProcessor implements IdentityDocumentProcessor {
-  FakeIdentityDocumentProcessor({
-    this.result = const IdentityData(
-      fullName: 'أحمد محمد عبد الله',
-      identityNumber: '123456789',
-      birthDate: '14 / 05 / 1998',
-      address: '',
-    ),
-    this.failure,
-  });
-
-  final IdentityData result;
-  final IdentityScanFailure? failure;
-  int calls = 0;
-  Uint8List? receivedImage;
-
-  @override
-  Future<IdentityData> extract(Uint8List imageBytes) async {
-    calls++;
-    receivedImage = Uint8List.fromList(imageBytes);
-    if (failure != null) throw failure!;
-    return result;
-  }
-}
-
 class FakeReports implements FireReportRepository {
   int submissions = 0;
   bool hasPhoto = false;
+  int imageCount = 0;
+  List<Uint8List> images = const [];
+  LocationFix? submittedLocation;
   String? pin;
   @override
-  Future<void> submit({
-    Uint8List? photo,
+  Future<FireReport> submit({
+    required List<Uint8List> images,
     String? pin,
     required LocationFix location,
   }) async {
     submissions++;
-    hasPhoto = photo != null;
+    imageCount = images.length;
+    hasPhoto = images.isNotEmpty;
+    this.images = List.unmodifiable(images);
+    submittedLocation = location;
     this.pin = pin;
+    return report;
   }
 
   static final report = FireReport(
@@ -500,7 +469,6 @@ AppServices fakeServices({
   FakeLocation? location,
   FakeCamera? camera,
   FakeReports? reports,
-  FakeIdentityDocumentProcessor? identityProcessor,
   SessionRepository? sessions,
 }) {
   final operations = FakeMunicipalityOperationsRepository();
@@ -509,7 +477,6 @@ AppServices fakeServices({
     permissions: permissions ?? FakePermissions(),
     location: location ?? FakeLocation(),
     camera: () => camera ?? FakeCamera(),
-    identityProcessor: identityProcessor ?? FakeIdentityDocumentProcessor(),
     reports: fakeReports,
     reportRepository: fakeReports,
     volunteer: FakeVolunteerApplicationService(),

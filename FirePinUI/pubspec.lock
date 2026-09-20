@@ -866,14 +866,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.2.2"
-  tesseract_ocr:
-    dependency: "direct main"
-    description:
-      name: tesseract_ocr
-      sha256: "75577a824eb2fe1fd1043337118a88fa20a2b5cf772a212ddd37c176faf34f68"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.5.0"
   test_api:
     dependency: transitive
     description:

@@ -1,8 +1,10 @@
 import 'dart:async';
-
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
 import '../../app/app_services.dart';
+import '../../core/network/api_client.dart';
 import '../../core/services/device_services.dart';
 import '../../core/ui/components.dart';
 import '../../core/ui/digit_input.dart';
@@ -11,8 +13,10 @@ import '../../core/ui/motion.dart';
 import '../../theme/app_theme.dart';
 import '../auth/auth_models.dart';
 import '../onboarding/onboarding_models.dart';
+import 'fire_report_repository.dart';
 
-/// Figma 77:2. Still photos only: no microphone or photo-library access.
+/// Still-photo reporting using only a new camera capture. Gallery access is
+/// intentionally not offered.
 class FireCameraScreen extends StatefulWidget {
   const FireCameraScreen({
     super.key,
@@ -21,24 +25,29 @@ class FireCameraScreen extends StatefulWidget {
     required this.onSubmitted,
     required this.onClose,
   });
+
   final AppServices services;
   final OnboardingSession session;
-  final FutureOr<void> Function(Uint8List? photo) onSubmitted;
+  final FutureOr<void> Function(FireReport report) onSubmitted;
   final VoidCallback onClose;
+
   @override
   State<FireCameraScreen> createState() => _FireCameraScreenState();
 }
 
 class _FireCameraScreenState extends State<FireCameraScreen> {
+  static const _maximumImages = 5;
+
   final _camera = GlobalKey<LiveCameraState>();
+  final List<Uint8List> _images = [];
   bool _ready = false;
   bool _busy = false;
   bool _permissionGranted = false;
   bool _requestingCamera = true;
   bool _cameraSettings = false;
-  Uint8List? _image;
   String? _message;
   LocationProblem? _locationProblem;
+
   @override
   void initState() {
     super.initState();
@@ -60,7 +69,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
           _message = 'لم يتم السماح بالكاميرا. يمكنك إرسال البلاغ بدون صورة.';
         }
       });
-    } catch (_) {
+    } on Object {
       if (mounted) {
         setState(
           () =>
@@ -72,7 +81,27 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
     }
   }
 
-  Future<void> _submit({required bool withPhoto, String? pin}) async {
+  Future<void> _capture() async {
+    if (_busy || !_ready || _images.length >= _maximumImages) return;
+    setState(() {
+      _busy = true;
+      _message = null;
+    });
+    try {
+      final image = await _camera.currentState?.capture();
+      if (!mounted) return;
+      if (image == null) {
+        setState(() => _message = 'تعذّر التقاط الصورة. حاول مرة أخرى.');
+        return;
+      }
+      HapticFeedback.lightImpact();
+      setState(() => _images.add(image));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _submit({required List<Uint8List> images, String? pin}) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -80,32 +109,19 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       _locationProblem = null;
     });
     try {
-      if (withPhoto && _image == null) {
-        final photo = await _camera.currentState?.capture();
-        if (!mounted) return;
-        if (photo == null) {
-          setState(
-            () => _message =
-                'تعذّر التصوير. حاول مجددًا أو أرسل البلاغ بدون صورة.',
-          );
-          return;
-        }
-        HapticFeedback.lightImpact();
-        setState(() => _image = photo);
-      }
-      // Refresh GPS at report time; never claim a location was acquired if it wasn't.
+      // Reacquire GPS at submission time; the map location is never replaced
+      // with a fixed coordinate or a stale fallback.
       final fix = await widget.services.location.requestCurrentPosition();
       if (!mounted) return;
       widget.session.location = fix;
-      await widget.services.reports.submit(
-        photo: withPhoto ? _image : null,
+      final report = await widget.services.reportRepository.submit(
+        images: images,
         pin: pin,
         location: fix,
       );
       if (!mounted) return;
-      await widget.onSubmitted(withPhoto ? _image : null);
-      if (!mounted) return;
-      HapticFeedback.mediumImpact();
+      await widget.onSubmitted(report);
+      if (mounted) HapticFeedback.mediumImpact();
     } on LocationFailure catch (error) {
       if (mounted) {
         setState(() {
@@ -113,7 +129,23 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
           _message = locationExplanation(error.problem);
         });
       }
-    } catch (_) {
+    } on DioException catch (error) {
+      if (!mounted) return;
+      final detail = _apiDetail(error);
+      setState(() {
+        _message =
+            error.response?.statusCode == 422 &&
+                detail == 'PIN verification failed'
+            ? 'رمز الدخول غير صحيح. لم يتم إرسال البلاغ.'
+            : detail == 'A fire report can contain at most 5 images'
+            ? 'يمكن إرفاق خمس صور كحد أقصى.'
+            : 'تعذّر إكمال البلاغ. حاول مرة أخرى.';
+      });
+    } on AuthenticationException {
+      if (mounted) {
+        setState(() => _message = 'انتهت الجلسة. سجّل الدخول مجددًا.');
+      }
+    } on Object {
       if (mounted) {
         setState(() => _message = 'تعذّر إكمال البلاغ. حاول مرة أخرى.');
       }
@@ -124,19 +156,13 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
 
   Future<void> _confirmAndSubmitWithoutPhoto() async {
     if (_busy) return;
-    String? pin;
-    final confirmed = await showDialog<bool>(
+    final pin = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _ReportPinDialog(
-        verifyPin: (value) async {
-          pin = value;
-          return true;
-        },
-      ),
+      builder: (_) => const _ReportPinDialog(),
     );
-    if (confirmed == true && pin != null && mounted) {
-      await _submit(withPhoto: false, pin: pin);
+    if (pin != null && mounted) {
+      await _submit(images: const [], pin: pin);
     }
   }
 
@@ -149,7 +175,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       } else {
         await widget.services.permissions.openAppSettings();
       }
-    } catch (_) {
+    } on Object {
       if (mounted) {
         showFeedback(
           context,
@@ -159,9 +185,15 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
     }
   }
 
+  void _removeImage(int index) {
+    if (_busy) return;
+    setState(() => _images.removeAt(index));
+  }
+
   @override
   Widget build(BuildContext context) {
     final padding = MediaQuery.paddingOf(context);
+    final canCapture = !_busy && _ready && _images.length < _maximumImages;
     return PopScope(
       canPop: !_busy,
       child: AnnotatedRegion<SystemUiOverlayStyle>(
@@ -175,48 +207,23 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
                   fit: StackFit.expand,
                   children: [
                     if (_permissionGranted)
-                      ExcludeSemantics(
-                        excluding: _image != null,
-                        child: LiveCamera(
-                          key: _camera,
-                          factory: widget.services.camera,
-                          active: _image == null,
-                          onReady: (value) {
-                            if (mounted && value != _ready) {
-                              setState(() => _ready = value);
-                            }
-                          },
-                          onSettings: _settings,
-                        ),
+                      LiveCamera(
+                        key: _camera,
+                        factory: widget.services.camera,
+                        active: _images.length < _maximumImages,
+                        onReady: (value) {
+                          if (mounted && value != _ready) {
+                            setState(() => _ready = value);
+                          }
+                        },
+                        onSettings: _settings,
                       )
                     else
-                      Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _requestingCamera
-                                  ? 'جارٍ طلب إذن الكاميرا'
-                                  : 'الكاميرا غير متاحة',
-                              style: AppType.text(16, color: Colors.white),
-                            ),
-                            if (!_requestingCamera)
-                              TextButton(
-                                onPressed: _cameraSettings
-                                    ? _settings
-                                    : _requestCamera,
-                                child: Text(
-                                  _cameraSettings
-                                      ? 'فتح إعدادات التطبيق'
-                                      : 'السماح بالكاميرا',
-                                  style: const TextStyle(color: Colors.white),
-                                ),
-                              ),
-                          ],
-                        ),
+                      _CameraUnavailable(
+                        requesting: _requestingCamera,
+                        openSettings: _cameraSettings,
+                        onAction: _cameraSettings ? _settings : _requestCamera,
                       ),
-                    if (_image != null)
-                      Image.memory(_image!, fit: BoxFit.cover),
                     const Positioned(
                       top: 0,
                       left: 0,
@@ -252,28 +259,8 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
                       child: Row(
                         textDirection: TextDirection.ltr,
                         children: [
-                          Semantics(
-                            label: 'إغلاق الكاميرا',
-                            button: true,
-                            child: Material(
-                              color: const Color(0x70091613),
-                              shape: CircleBorder(
-                                side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: _busy ? null : widget.onClose,
-                                child: const SizedBox(
-                                  width: 42,
-                                  height: 42,
-                                  child: Center(
-                                    child: FigmaIcon('close', size: 20),
-                                  ),
-                                ),
-                              ),
-                            ),
+                          _CloseCameraButton(
+                            onPressed: _busy ? null : widget.onClose,
                           ),
                           Expanded(
                             child: Text(
@@ -295,11 +282,56 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
                       top: padding.top > 36 ? padding.top + 65 : 105,
                       right: 20,
                       child: _CameraPill(
-                        widget.session.location != null
-                            ? '✓ تم تحديد موقعك'
-                            : 'الموقع مطلوب للبلاغ',
+                        widget.session.location == null
+                            ? 'الموقع مطلوب للبلاغ'
+                            : '✓ تم تحديد موقعك على الخريطة',
                       ),
                     ),
+                    if (_images.isNotEmpty)
+                      Positioned(
+                        top: padding.top > 36 ? padding.top + 108 : 148,
+                        left: 16,
+                        right: 16,
+                        height: 68,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _images.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 8),
+                          itemBuilder: (context, index) => Stack(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(
+                                  _images[index],
+                                  key: ValueKey('captured-fire-image-$index'),
+                                  width: 68,
+                                  height: 68,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: InkWell(
+                                  key: ValueKey('remove-fire-image-$index'),
+                                  onTap: _busy
+                                      ? null
+                                      : () => _removeImage(index),
+                                  child: const CircleAvatar(
+                                    radius: 10,
+                                    backgroundColor: Color(0xB0000000),
+                                    child: Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     Positioned(
                       bottom: 22,
                       left: 24,
@@ -334,27 +366,23 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
               SafeArea(
                 top: false,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 10, 24, 16),
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Semantics(
                         button: true,
                         label: 'التقاط صورة',
-                        enabled: !_busy && (_ready || _image != null),
+                        enabled: canCapture,
                         child: Material(
                           type: MaterialType.transparency,
                           child: InkWell(
                             key: const ValueKey('fire-shutter'),
                             customBorder: const CircleBorder(),
-                            onTap: !_busy && (_ready || _image != null)
-                                ? () => _submit(withPhoto: true)
-                                : null,
+                            onTap: canCapture ? _capture : null,
                             child: Opacity(
-                              opacity: !_busy && (_ready || _image != null)
-                                  ? 1
-                                  : 0.45,
-                              child: const FigmaIcon('shutter', size: 92),
+                              opacity: canCapture ? 1 : 0.45,
+                              child: const FigmaIcon('shutter', size: 76),
                             ),
                           ),
                         ),
@@ -362,16 +390,27 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
                       Text(
                         _busy
                             ? 'جارٍ تجهيز البلاغ'
-                            : _image == null
-                            ? 'التقاط صورة'
-                            : 'إعادة إرسال البلاغ',
+                            : 'الصور ${_images.length}/$_maximumImages',
+                        key: const ValueKey('fire-image-count'),
                         style: AppType.text(
                           14,
                           weight: FontWeight.w500,
                           color: Colors.white,
-                          height: 28,
+                          height: 24,
                         ),
                       ),
+                      if (_images.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        AppButton(
+                          'إرسال البلاغ بالصور',
+                          key: const ValueKey('submit-fire-images'),
+                          busy: _busy,
+                          onPressed: _busy
+                              ? null
+                              : () =>
+                                    _submit(images: List.unmodifiable(_images)),
+                        ),
+                      ],
                       TextButton(
                         onPressed: _busy ? null : _confirmAndSubmitWithoutPhoto,
                         child: Text(
@@ -400,8 +439,7 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
 }
 
 class _ReportPinDialog extends StatefulWidget {
-  const _ReportPinDialog({required this.verifyPin});
-  final Future<bool> Function(String pin) verifyPin;
+  const _ReportPinDialog();
 
   @override
   State<_ReportPinDialog> createState() => _ReportPinDialogState();
@@ -409,12 +447,10 @@ class _ReportPinDialog extends StatefulWidget {
 
 class _ReportPinDialogState extends State<_ReportPinDialog> {
   final _pin = TextEditingController();
-  bool _busy = false;
   String? _error;
   int _shake = 0;
 
-  Future<void> _confirm() async {
-    if (_busy) return;
+  void _confirm() {
     if (!isValidLoginPin(_pin.text)) {
       setState(() {
         _error = 'أدخل رمز دخول مكوّنًا من 4 أرقام.';
@@ -422,31 +458,9 @@ class _ReportPinDialogState extends State<_ReportPinDialog> {
       });
       return;
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final accepted = await widget.verifyPin(_pin.text);
-      if (!mounted) return;
-      if (accepted) {
-        _pin.clear();
-        Navigator.of(context).pop(true);
-      } else {
-        _pin.clear();
-        setState(() {
-          _error = 'رمز الدخول غير صحيح. حاول مجددًا.';
-          _shake++;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        _pin.clear();
-        setState(() => _error = 'تعذّر التحقق من رمز الدخول. حاول مجددًا.');
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    final pin = normalizeDigits(_pin.text).trim();
+    _pin.clear();
+    Navigator.of(context).pop(pin);
   }
 
   @override
@@ -457,50 +471,108 @@ class _ReportPinDialogState extends State<_ReportPinDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
-    canPop: !_busy,
-    child: AlertDialog(
-      title: Text('تأكيد رمز الدخول', style: AppType.section),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            'أدخل رمز حسابك المكوّن من 4 أرقام لإرسال البلاغ بدون صورة.',
-            style: AppType.text(14, color: AppColors.textSecondary, height: 25),
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('تأكيد رمز الدخول', style: AppType.section),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'أدخل رمز حسابك المكوّن من 4 أرقام لإرسال البلاغ بدون صورة.',
+          style: AppType.text(14, color: AppColors.textSecondary, height: 25),
+        ),
+        const SizedBox(height: 18),
+        Shake(
+          trigger: _shake,
+          child: DigitInput(
+            controller: _pin,
+            label: 'رمز تأكيد البلاغ',
+            length: 4,
+            obscure: true,
           ),
-          const SizedBox(height: 18),
-          Shake(
-            trigger: _shake,
-            child: DigitInput(
-              controller: _pin,
-              label: 'رمز تأكيد البلاغ',
-              length: 4,
-              obscure: true,
-              enabled: !_busy,
+        ),
+        InlineMessage(_error),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('إلغاء'),
+      ),
+      FilledButton(
+        key: const ValueKey('confirm-no-photo-report'),
+        onPressed: _confirm,
+        child: const Text('تأكيد الإرسال'),
+      ),
+    ],
+  );
+}
+
+class _CameraUnavailable extends StatelessWidget {
+  const _CameraUnavailable({
+    required this.requesting,
+    required this.openSettings,
+    required this.onAction,
+  });
+
+  final bool requesting;
+  final bool openSettings;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          requesting ? 'جارٍ طلب إذن الكاميرا' : 'الكاميرا غير متاحة',
+          style: AppType.text(16, color: Colors.white),
+        ),
+        if (!requesting)
+          TextButton(
+            onPressed: onAction,
+            child: Text(
+              openSettings ? 'فتح إعدادات التطبيق' : 'السماح بالكاميرا',
+              style: const TextStyle(color: Colors.white),
             ),
           ),
-          InlineMessage(_error),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: _busy ? null : () => Navigator.of(context).pop(false),
-          child: const Text('إلغاء'),
-        ),
-        FilledButton(
-          key: const ValueKey('confirm-no-photo-report'),
-          onPressed: _busy ? null : _confirm,
-          child: Text(_busy ? 'جارٍ التحقق' : 'تأكيد الإرسال'),
-        ),
       ],
+    ),
+  );
+}
+
+class _CloseCameraButton extends StatelessWidget {
+  const _CloseCameraButton({required this.onPressed});
+
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    label: 'إغلاق الكاميرا',
+    button: true,
+    child: Material(
+      color: const Color(0x70091613),
+      shape: CircleBorder(
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+      ),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: const SizedBox(
+          width: 42,
+          height: 42,
+          child: Center(child: FigmaIcon('close', size: 20)),
+        ),
+      ),
     ),
   );
 }
 
 class _CameraPill extends StatelessWidget {
   const _CameraPill(this.text);
+
   final String text;
+
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -519,4 +591,11 @@ class _CameraPill extends StatelessWidget {
       ),
     ),
   );
+}
+
+String? _apiDetail(DioException error) {
+  final data = error.response?.data;
+  return data is Map<String, dynamic> && data['detail'] is String
+      ? data['detail'] as String
+      : null;
 }

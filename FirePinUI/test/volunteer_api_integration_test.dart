@@ -559,11 +559,6 @@ class Stage4AuthRepository implements AuthRepository {
     required String nationalId,
     required String pin,
   }) async => UserLoginResult(account: account);
-  @override
-  Future<bool> verifyUserPin({
-    required String userId,
-    required String pin,
-  }) async => true;
 }
 
 class MemoryTokenStorage extends TokenStorage {

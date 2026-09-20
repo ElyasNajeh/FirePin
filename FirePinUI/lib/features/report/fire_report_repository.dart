@@ -80,6 +80,12 @@ class FireReportRoute {
 }
 
 abstract interface class FireReportRepository implements FireReportService {
+  @override
+  Future<FireReport> submit({
+    required List<Uint8List> images,
+    String? pin,
+    required LocationFix location,
+  });
   Future<List<FireReport>> getMyReports();
   Future<FireReport> getMyReport(int reportId);
   Future<List<FireReport>> getVolunteerReports();
@@ -96,24 +102,32 @@ class ApiFireReportRepository implements FireReportRepository {
   final ApiClient _api;
 
   @override
-  Future<void> submit({
-    Uint8List? photo,
+  Future<FireReport> submit({
+    required List<Uint8List> images,
     String? pin,
     required LocationFix location,
   }) async {
-    final images = photo == null
-        ? const <MultipartFile>[]
-        : [MultipartFile.fromBytes(photo, filename: 'fire-report.jpg')];
-    await _api.post<Map<String, dynamic>>(
+    if (images.length > 5) {
+      throw ArgumentError.value(images.length, 'images', 'Maximum is 5');
+    }
+    final files = [
+      for (final (index, image) in images.indexed)
+        MultipartFile.fromBytes(
+          image,
+          filename: 'fire-report-${index + 1}.jpg',
+        ),
+    ];
+    final response = await _api.post<Map<String, dynamic>>(
       '/fire-reports',
       data: FormData.fromMap({
-        'latitude': location.latitude.toString(),
-        'longitude': location.longitude.toString(),
-        if (images.isNotEmpty) 'images': images,
-        if (images.isEmpty && pin != null) 'pin': pin,
+        'latitude': location.latitude.toStringAsFixed(6),
+        'longitude': location.longitude.toStringAsFixed(6),
+        if (files.isNotEmpty) 'images': files,
+        if (files.isEmpty && pin != null) 'pin': pin,
       }),
       requiresAuth: true,
     );
+    return _report(response.data);
   }
 
   @override

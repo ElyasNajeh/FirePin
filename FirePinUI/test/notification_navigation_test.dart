@@ -261,7 +261,4 @@ class DelayedAuthRepository implements AuthRepository {
   @override
   Future<UserLoginResult> registerUser(OnboardingSession session) =>
       delegate.registerUser(session);
-  @override
-  Future<bool> verifyUserPin({required String userId, required String pin}) =>
-      delegate.verifyUserPin(userId: userId, pin: pin);
 }

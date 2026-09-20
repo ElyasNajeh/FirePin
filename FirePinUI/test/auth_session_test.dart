@@ -71,20 +71,6 @@ void main() {
     expect(await sessions.read(), isNull);
   });
 
-  test('current user PIN verification uses the active account', () async {
-    expect(await auth.verifyCurrentUserPin('1234'), isFalse);
-    await auth.loginUser(
-      DemoAuthRepository.citizenNationalId,
-      DemoAuthRepository.citizenPin,
-    );
-    expect(
-      await auth.verifyCurrentUserPin(DemoAuthRepository.citizenPin),
-      isTrue,
-    );
-    expect(await auth.verifyCurrentUserPin('9999'), isFalse);
-    expect(await auth.verifyCurrentUserPin('123'), isFalse);
-  });
-
   test(
     'demo citizens authenticate independently without volunteer access',
     () async {

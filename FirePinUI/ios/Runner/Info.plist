@@ -9,7 +9,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>شباب البلد</string>
 	<key>NSCameraUsageDescription</key>
-	<string>نحتاج الكاميرا لتصوير بطاقة الهوية وإرفاق صورة للبلاغ عند الحاجة. لا نستخدم معرض الصور.</string>
+	<string>نحتاج الكاميرا لإرفاق صور حديثة ببلاغ الحريق. لا نستخدم معرض الصور.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>نحتاج موقعك أثناء استخدام التطبيق لتحديد موقع البلاغ وعرض موقعك الحالي.</string>
 	<key>CFBundleExecutable</key>
