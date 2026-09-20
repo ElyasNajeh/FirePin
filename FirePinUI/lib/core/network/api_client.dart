@@ -15,8 +15,10 @@ class ApiClient {
   ApiClient({
     required String baseUrl,
     required TokenStorage tokenStorage,
+    String refreshPath = '/auth/refresh',
     Dio? dio,
   }) : _tokenStorage = tokenStorage,
+       _refreshPath = refreshPath,
        _dio = dio ?? Dio() {
     _dio.options = _dio.options.copyWith(
       baseUrl: baseUrl,
@@ -28,6 +30,7 @@ class ApiClient {
 
   final Dio _dio;
   final TokenStorage _tokenStorage;
+  final String _refreshPath;
 
   String? _accessToken;
   Future<String?>? _refreshFuture;
@@ -191,7 +194,7 @@ class ApiClient {
 
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/refresh',
+        _refreshPath,
         data: {'refresh_token': refreshToken},
       );
       final accessToken = response.data?['access_token'];

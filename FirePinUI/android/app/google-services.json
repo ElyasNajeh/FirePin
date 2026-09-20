@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "178620142374",
+    "project_id": "firepin-f77ae",
+    "storage_bucket": "firepin-f77ae.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:178620142374:android:da1e0271ba8f972a3827e7",
+        "android_client_info": {
+          "package_name": "com.firepin.firepin_ui"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCe9H5S8ZTebw89-cOY_2h4nYEQcqLE77Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

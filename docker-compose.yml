@@ -69,6 +69,7 @@ services:
     volumes:
       - ./FirePinAPI:/app
       - uploads_data:/app/uploads
+      - ./FirePinAPI/secrets/firebase-admin.json:/run/secrets/firebase-admin.json:ro
 
     depends_on:
       postgres:

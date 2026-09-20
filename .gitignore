@@ -79,3 +79,6 @@ logs/
 *.local
 uploads/
 firebase-service-account*.json
+
+
+FirePinAPI/secrets/

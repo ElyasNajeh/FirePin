@@ -15,6 +15,9 @@ from app.features.volunteers.model import Volunteer
 logger = logging.getLogger(__name__)
 
 MAX_MULTICAST_TOKENS = 500
+FIRE_EMERGENCY_CHANNEL_ID = "fire_emergency"
+# Set to "fire_alarm" after that project-owned file is added to Android res/raw.
+FIRE_EMERGENCY_SOUND: str | None = None
 
 
 @lru_cache(maxsize=1)
@@ -66,6 +69,7 @@ async def send_notification(
     title: str,
     body: str,
     data: dict[str, str],
+    emergency: bool = False,
 ) -> None:
     batches = token_batches(tokens)
     if not batches:
@@ -80,6 +84,17 @@ async def send_notification(
             tokens=batch,
             notification=messaging.Notification(title=title, body=body),
             data=data,
+            android=messaging.AndroidConfig(
+                priority="high" if emergency else "normal",
+                notification=messaging.AndroidNotification(
+                    channel_id=(
+                        FIRE_EMERGENCY_CHANNEL_ID if emergency else None
+                    ),
+                    sound=FIRE_EMERGENCY_SOUND if emergency else None,
+                    default_sound=emergency and FIRE_EMERGENCY_SOUND is None,
+                    default_vibrate_timings=emergency,
+                ),
+            ),
         )
         try:
             response = await asyncio.to_thread(
@@ -115,27 +130,36 @@ async def send_notification(
 async def notify_report_created(report: FireReport) -> None:
     try:
         async with AsyncSessionLocal() as db:
-            tokens = list(
+            volunteer_tokens = list(
                 (
                     await db.execute(
                         select(DeviceToken.token)
                         .join(Volunteer, Volunteer.user_id == DeviceToken.user_id)
                         .where(
                             Volunteer.municipality_id == report.municipality_id,
-                            Volunteer.user_id != report.reporter_id,
+                        )
+                    )
+                ).scalars()
+            )
+            municipality_tokens = list(
+                (
+                    await db.execute(
+                        select(DeviceToken.token).where(
+                            DeviceToken.municipality_id == report.municipality_id
                         )
                     )
                 ).scalars()
             )
 
         await send_notification(
-            tokens,
+            volunteer_tokens + municipality_tokens,
             title="بلاغ حريق جديد",
             body="تم تسجيل بلاغ حريق جديد بالقرب منك",
             data={
-                "event_type": "fire_report_created",
+                "type": "fire_report_created",
                 "report_id": str(report.id),
             },
+            emergency=True,
         )
     except Exception as error:
         logger.error(
@@ -162,15 +186,13 @@ async def notify_report_claimed(report: FireReport) -> None:
                     )
                 ).scalars()
             )
-            other_volunteer_tokens = list(
+            volunteer_tokens = list(
                 (
                     await db.execute(
                         select(DeviceToken.token)
                         .join(Volunteer, Volunteer.user_id == DeviceToken.user_id)
                         .where(
                             Volunteer.municipality_id == report.municipality_id,
-                            Volunteer.id != volunteer.id,
-                            Volunteer.user_id != report.reporter_id,
                         )
                     )
                 ).scalars()
@@ -185,31 +207,20 @@ async def notify_report_claimed(report: FireReport) -> None:
                 ).scalars()
             )
 
-        base_data = {
-            "event_type": "fire_report_claimed",
+        data = {
+            "type": "fire_report_claimed",
             "report_id": str(report.id),
-            "volunteer_full_name": volunteer_user.full_name,
+            "volunteer_name": volunteer_user.full_name,
+            "volunteer_phone": volunteer_user.phone,
         }
         await send_notification(
-            reporter_tokens,
-            title="تم استلام بلاغك",
-            body=f"تم استلام بلاغك بواسطة {volunteer_user.full_name}",
-            data={
-                **base_data,
-                "volunteer_phone": volunteer_user.phone,
-            },
-        )
-        await send_notification(
-            other_volunteer_tokens,
-            title="تم استلام البلاغ",
-            body=f"تم استلام البلاغ بواسطة {volunteer_user.full_name}",
-            data=base_data,
-        )
-        await send_notification(
-            municipality_tokens,
-            title="تم استلام البلاغ",
-            body=f"تم استلام البلاغ بواسطة {volunteer_user.full_name}",
-            data=base_data,
+            reporter_tokens + volunteer_tokens + municipality_tokens,
+            title="تمت تلبية النداء",
+            body=(
+                f"تمت تلبية النداء من قبل {volunteer_user.full_name}. "
+                f"رقم الهاتف: {volunteer_user.phone}"
+            ),
+            data=data,
         )
     except Exception as error:
         logger.error(
@@ -242,17 +253,11 @@ async def notify_report_resolved(report: FireReport) -> None:
             )
 
         data = {
-            "event_type": "fire_report_resolved",
+            "type": "fire_report_resolved",
             "report_id": str(report.id),
         }
         await send_notification(
-            reporter_tokens,
-            title="تم إنهاء البلاغ",
-            body="تم إنهاء التعامل مع البلاغ",
-            data=data,
-        )
-        await send_notification(
-            municipality_tokens,
+            reporter_tokens + municipality_tokens,
             title="تم إنهاء البلاغ",
             body="تم إنهاء التعامل مع البلاغ",
             data=data,

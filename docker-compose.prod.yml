@@ -63,6 +63,10 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
 
+    volumes:
+      - uploads_data:/app/uploads
+      - ./FirePinAPI/secrets/firebase-admin.json:/run/secrets/firebase-admin.json:ro
+
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,3 +77,4 @@ services:
 # =========================
 volumes:
   postgres_data:
+  uploads_data:

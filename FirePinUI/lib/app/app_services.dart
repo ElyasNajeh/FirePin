@@ -5,6 +5,7 @@ import '../features/auth/auth_repositories.dart';
 import '../features/incidents/incident_controller.dart';
 import '../features/incidents/shared_mock_incident_client.dart';
 import '../features/municipality/municipality_repository.dart';
+import '../features/notifications/notification_service.dart';
 import '../features/onboarding/onboarding_services.dart';
 
 /// Replace the mock implementations here when the API is ready.
@@ -24,6 +25,7 @@ class AppServices {
     AuthRepository? auth,
     MunicipalityAuthRepository? municipalityAuth,
     SessionRepository? sessions,
+    FirePinNotificationService? notifications,
   }) {
     this.identity = identity ?? const MockIdentityVerificationService();
     this.otp = otp ?? MockOtpService();
@@ -43,6 +45,7 @@ class AppServices {
     final userAuth = auth ?? DemoAuthRepository(this.operations);
     final authorityAuth = municipalityAuth ?? DemoMunicipalityAuthRepository();
     this.sessions = sessions ?? SecureSessionRepository();
+    this.notifications = notifications ?? FirePinNotificationService();
     authController = AuthController(
       users: userAuth,
       municipalities: authorityAuth,
@@ -60,5 +63,6 @@ class AppServices {
   late final IncidentController incidents;
   late final MunicipalityRepository operations;
   late final SessionRepository sessions;
+  late final FirePinNotificationService notifications;
   late final AuthController authController;
 }
