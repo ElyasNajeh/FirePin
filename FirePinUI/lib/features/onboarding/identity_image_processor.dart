@@ -181,8 +181,11 @@ class ConservativeIdentityImagePreprocessor
   const ConservativeIdentityImagePreprocessor();
 
   static const _maximumWidth = 2400;
-  static const _minimumWidth = 640;
-  static const _minimumHeight = 360;
+  static const _minimumUncroppedWidth = 640;
+  static const _minimumUncroppedHeight = 360;
+  static const _minimumCroppedWidth = 400;
+  static const _minimumCroppedHeight = 250;
+  static const _preferredCroppedWidth = 1280;
 
   @override
   Future<ProcessedIdentityImage> process(
@@ -227,13 +230,27 @@ class ConservativeIdentityImagePreprocessor
       wasCropped = true;
     }
 
-    if (prepared.width < _minimumWidth || prepared.height < _minimumHeight) {
+    final minimumWidth = wasCropped
+        ? _minimumCroppedWidth
+        : _minimumUncroppedWidth;
+    final minimumHeight = wasCropped
+        ? _minimumCroppedHeight
+        : _minimumUncroppedHeight;
+    if (prepared.width < minimumWidth || prepared.height < minimumHeight) {
       throw IdentityImageProcessingException(
         'image resolution ${prepared.width}x${prepared.height} is too low',
       );
     }
 
-    if (prepared.width > _maximumWidth) {
+    if (wasCropped && prepared.width < _preferredCroppedWidth) {
+      // A usable guide crop can be smaller than the full camera capture.
+      // Enlarge it before OCR while retaining its card aspect ratio.
+      prepared = image.copyResize(
+        prepared,
+        width: _preferredCroppedWidth,
+        interpolation: image.Interpolation.cubic,
+      );
+    } else if (prepared.width > _maximumWidth) {
       prepared = image.copyResize(
         prepared,
         width: _maximumWidth,

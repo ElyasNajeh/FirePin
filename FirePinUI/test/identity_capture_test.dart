@@ -516,12 +516,56 @@ void main() {
           );
 
       expect(result.wasCropped, isTrue);
-      expect(result.width, 720);
-      expect(result.height, 456);
+      expect(result.width, 1280);
+      expect(result.width / result.height, closeTo(720 / 456, 0.01));
       final decoded = image.decodeJpg(result.bytes)!;
       final pixel = decoded.getPixel(100, 100);
       expect((pixel.r - pixel.g).abs(), lessThanOrEqualTo(2));
       expect((pixel.g - pixel.b).abs(), lessThanOrEqualTo(2));
+    });
+
+    test('accepts and upscales a modest guide crop for OCR', () async {
+      final source = image.Image(width: 800, height: 600);
+      image.fill(source, color: image.ColorRgb8(140, 150, 130));
+      final result = await const ConservativeIdentityImagePreprocessor()
+          .process(
+            Uint8List.fromList(image.encodeJpg(source)),
+            region: const IdentityCaptureRegion(
+              previewSize: Size(800, 600),
+              guideRect: Rect.fromLTWH(100, 100, 522, 332),
+            ),
+          );
+
+      expect(result.wasCropped, isTrue);
+      expect(result.width, 1280);
+      expect(result.width / result.height, closeTo(522 / 332, 0.01));
+      final decoded = image.decodeJpg(result.bytes)!;
+      expect(decoded.width, result.width);
+      expect(decoded.height, result.height);
+    });
+
+    test('still rejects a genuinely tiny guide crop', () async {
+      final source = image.Image(width: 800, height: 600);
+      await expectLater(
+        const ConservativeIdentityImagePreprocessor().process(
+          Uint8List.fromList(image.encodeJpg(source)),
+          region: const IdentityCaptureRegion(
+            previewSize: Size(800, 600),
+            guideRect: Rect.fromLTWH(100, 100, 300, 190),
+          ),
+        ),
+        throwsA(isA<IdentityImageProcessingException>()),
+      );
+    });
+
+    test('keeps the stricter floor for an uncropped full image', () async {
+      final source = image.Image(width: 522, height: 332);
+      await expectLater(
+        const ConservativeIdentityImagePreprocessor().process(
+          Uint8List.fromList(image.encodeJpg(source)),
+        ),
+        throwsA(isA<IdentityImageProcessingException>()),
+      );
     });
   });
 
