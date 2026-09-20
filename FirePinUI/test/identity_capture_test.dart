@@ -52,10 +52,87 @@ class _FailingOcrEngine implements IdentityOcrEngine {
   }) => throw PlatformException(code: code, message: 'synthetic failure');
 }
 
+class _ScriptedOcrEngine implements IdentityOcrEngine {
+  const _ScriptedOcrEngine(this.responses, {this.failingMode});
+
+  final Map<IdentityOcrMode, String> responses;
+  final IdentityOcrMode? failingMode;
+
+  @override
+  Future<String> recognize({
+    required String imagePath,
+    required String tessdataPath,
+    required String language,
+    IdentityOcrMode mode = IdentityOcrMode.fullCard,
+  }) async {
+    if (mode == failingMode) {
+      throw PlatformException(code: 'OCR_EXECUTION_FAILED');
+    }
+    return responses[mode] ?? '';
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Palestinian identity OCR parsing', () {
+    test('only ID is extracted without blocking missing fields', () {
+      final result = IdentityTextParser.parse('رقم الهوية: 123 456 789');
+      expect(result.identityNumber, '123456789');
+      expect(result.fullName, isEmpty);
+      expect(result.birthDate, isEmpty);
+    });
+
+    test('only ordered Arabic name is extracted', () {
+      final result = IdentityTextParser.parse('''
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+''');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+      expect(result.identityNumber, isEmpty);
+      expect(result.birthDate, isEmpty);
+    });
+
+    test('only labeled birth date is extracted', () {
+      final result = IdentityTextParser.parse('تاريخ الميلاد: 07/11/2000');
+      expect(result.birthDate, '07 / 11 / 2000');
+      expect(result.identityNumber, isEmpty);
+      expect(result.fullName, isEmpty);
+    });
+
+    test('conflicting name leaves name empty while retaining ID and date', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+الاسم الشخصي: خالد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+تاريخ الميلاد: 07/11/2000
+''');
+      expect(result.fullName, isEmpty);
+      expect(result.identityNumber, '123456789');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
+    test('unreadable OCR returns empty editable fields', () {
+      final result = IdentityTextParser.parse('؟ ؟ ؟');
+      expect(result.fullName, isEmpty);
+      expect(result.identityNumber, isEmpty);
+      expect(result.birthDate, isEmpty);
+      expect(result.address, isEmpty);
+    });
+
+    test('an unlabeled card date is never substituted for birth date', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية: 123456789
+تاريخ الطباعة: 28/12/2025
+''');
+      expect(result.birthDate, isEmpty);
+    });
+
     test('assembles four labeled Arabic name rows on a structured card', () {
       final result = IdentityTextParser.parse('''
 بطاقة هوية
@@ -138,8 +215,7 @@ void main() {
     test(
       'does not use a nearby printing date when birth date is unreadable',
       () {
-        expect(
-          () => IdentityTextParser.parse('''
+        final result = IdentityTextParser.parse('''
 رقم الهوية: 123456789
 الاسم الشخصي: أحمد
 اسم الأب: محمد
@@ -147,36 +223,22 @@ void main() {
 اسم العائلة: خليل
 تاريخ الميلاد: غير واضح
 تاريخ الطباعة: 28/12/2025
-'''),
-          throwsA(
-            isA<IdentityScanFailure>().having(
-              (failure) => failure.technicalCode,
-              'technicalCode',
-              'birth_date_missing_or_invalid',
-            ),
-          ),
-        );
+''');
+        expect(result.birthDate, isEmpty);
+        expect(result.identityNumber, '123456789');
       },
     );
 
     test('does not treat a sole labeled printing date as birth date', () {
-      expect(
-        () => IdentityTextParser.parse('''
+      final result = IdentityTextParser.parse('''
 رقم الهوية: 123456789
 الاسم الشخصي: أحمد
 اسم الأب: محمد
 اسم الجد: سالم
 اسم العائلة: خليل
 تاريخ الطباعة: 28/12/2025
-'''),
-        throwsA(
-          isA<IdentityScanFailure>().having(
-            (failure) => failure.technicalCode,
-            'technicalCode',
-            'birth_date_missing_or_invalid',
-          ),
-        ),
-      );
+''');
+      expect(result.birthDate, isEmpty);
     });
 
     test('ignores Hebrew and unrelated Arabic text around split fields', () {
@@ -204,42 +266,27 @@ void main() {
       expect(result.fullName, 'أحمد محمد خليل');
     });
 
-    test('fails when only two split name fields can be read', () {
-      expect(
-        () => IdentityTextParser.parse('''
+    test('leaves name empty when only two split fields can be read', () {
+      final result = IdentityTextParser.parse('''
 رقم الهوية: 123456789
 الاسم الشخصي: أحمد
 اسم الأب: محمد
 مكان الولادة: مدينة تجريبية
 تاريخ الميلاد: 07/11/2000
-'''),
-        throwsA(
-          isA<IdentityScanFailure>().having(
-            (failure) => failure.technicalCode,
-            'technicalCode',
-            'arabic_name_missing',
-          ),
-        ),
-      );
+''');
+      expect(result.fullName, isEmpty);
+      expect(result.identityNumber, '123456789');
     });
 
     test('does not turn unreadable name text into a component', () {
-      expect(
-        () => IdentityTextParser.parse('''
+      final result = IdentityTextParser.parse('''
 رقم الهوية: 123456789
 الاسم الشخصي: أحمد
 اسم الأب: محمد
 اسم الجد: غير واضح
 تاريخ الميلاد: 07/11/2000
-'''),
-        throwsA(
-          isA<IdentityScanFailure>().having(
-            (failure) => failure.technicalCode,
-            'technicalCode',
-            'arabic_name_missing',
-          ),
-        ),
-      );
+''');
+      expect(result.fullName, isEmpty);
     });
 
     test('recovers split ID only inside its targeted region', () {
@@ -319,62 +366,34 @@ void main() {
       expect(result.identityNumber, '123456789');
     });
 
-    test('rejects multiple ambiguous nine-digit IDs', () {
-      expect(
-        () => IdentityTextParser.parse('''
+    test('leaves ambiguous nine-digit ID empty and retains other fields', () {
+      final result = IdentityTextParser.parse('''
 رقم الهوية: 123456789
 رقم آخر: 987654321
 الاسم الكامل: أحمد محمد عبد الله
 تاريخ الميلاد: 14/05/1998
-'''),
-        throwsA(
-          isA<IdentityScanFailure>()
-              .having(
-                (failure) => failure.type,
-                'type',
-                IdentityScanFailureType.ambiguousIdentityData,
-              )
-              .having(
-                (failure) => failure.technicalCode,
-                'technicalCode',
-                'multiple_national_ids',
-              ),
-        ),
-      );
+''');
+      expect(result.identityNumber, isEmpty);
+      expect(result.fullName, 'أحمد محمد عبد الله');
+      expect(result.birthDate, '14 / 05 / 1998');
     });
 
-    test('rejects missing nine-digit ID', () {
-      expect(
-        () => IdentityTextParser.parse('''
+    test('leaves missing nine-digit ID empty', () {
+      final result = IdentityTextParser.parse('''
 بطاقة هوية فلسطينية
 الاسم الكامل: أحمد محمد عبد الله
 تاريخ الميلاد: 14/05/1998
-'''),
-        throwsA(
-          isA<IdentityScanFailure>().having(
-            (failure) => failure.technicalCode,
-            'technicalCode',
-            'national_id_missing',
-          ),
-        ),
-      );
+''');
+      expect(result.identityNumber, isEmpty);
     });
 
-    test('rejects invalid birth date', () {
-      expect(
-        () => IdentityTextParser.parse('''
+    test('leaves invalid birth date empty', () {
+      final result = IdentityTextParser.parse('''
 رقم الهوية: 123456789
 الاسم الكامل: أحمد محمد عبد الله
 تاريخ الميلاد: 31/02/1998
-'''),
-        throwsA(
-          isA<IdentityScanFailure>().having(
-            (failure) => failure.technicalCode,
-            'technicalCode',
-            'birth_date_missing_or_invalid',
-          ),
-        ),
-      );
+''');
+      expect(result.birthDate, isEmpty);
     });
 
     test('accepts a valid labeled birth date', () {
@@ -396,22 +415,41 @@ void main() {
       expect(result.fullName, 'أحمد محمد عبد الله صالح');
     });
 
-    test('rejects invalid or missing Arabic name', () {
-      expect(
-        () => IdentityTextParser.parse('''
+    test(
+      'uses labeled full-name fallback when split fields are incomplete',
+      () {
+        final result = IdentityTextParser.parse('''
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+الاسم الكامل: أحمد محمد سالم خليل
+''');
+        expect(result.fullName, 'أحمد محمد سالم خليل');
+      },
+    );
+
+    test('leaves name empty when split and full-name fields conflict', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+الاسم الكامل: خالد محمود علي حسن
+تاريخ الميلاد: 07/11/2000
+''');
+      expect(result.fullName, isEmpty);
+      expect(result.identityNumber, '123456789');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
+    test('leaves missing Arabic name empty', () {
+      final result = IdentityTextParser.parse('''
 دولة فلسطين وزارة الداخلية
 رقم الهوية: 123456789
 تاريخ الميلاد: 14/05/1998
 العنوان: رام الله
-'''),
-        throwsA(
-          isA<IdentityScanFailure>().having(
-            (failure) => failure.technicalCode,
-            'technicalCode',
-            'arabic_name_missing',
-          ),
-        ),
-      );
+''');
+      expect(result.fullName, isEmpty);
     });
   });
 
@@ -460,6 +498,47 @@ void main() {
               ),
         ),
       );
+    });
+
+    test('targeted OCR contributes fields independently', () async {
+      const processor = TesseractIdentityDocumentProcessor(
+        preprocessor: _PreparedImagePreprocessor(),
+        ocrEngine: _ScriptedOcrEngine({
+          IdentityOcrMode.fullCard: 'رقم الهوية: 123456789',
+          IdentityOcrMode.arabicNames:
+              'الاسم الشخصي: أحمد\nاسم الأب: محمد\nاسم الجد: سالم\nاسم العائلة: خليل',
+          IdentityOcrMode.birthDate: '07/11/2000',
+        }),
+        tessdataProvider: _ReadyTessdataProvider(),
+      );
+      final photo = Uint8List.fromList(
+        image.encodeJpg(image.Image(width: 1000, height: 650)),
+      );
+
+      final result = await processor.extract(photo);
+      expect(result.identityNumber, '123456789');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
+    test('one targeted OCR execution error retains other fields', () async {
+      const processor = TesseractIdentityDocumentProcessor(
+        preprocessor: _PreparedImagePreprocessor(),
+        ocrEngine: _ScriptedOcrEngine({
+          IdentityOcrMode.fullCard: 'رقم الهوية: 123456789',
+          IdentityOcrMode.arabicNames:
+              'الاسم الشخصي: أحمد\nاسم الأب: محمد\nاسم الجد: سالم\nاسم العائلة: خليل',
+        }, failingMode: IdentityOcrMode.birthDate),
+        tessdataProvider: _ReadyTessdataProvider(),
+      );
+      final photo = Uint8List.fromList(
+        image.encodeJpg(image.Image(width: 1000, height: 650)),
+      );
+
+      final result = await processor.extract(photo);
+      expect(result.identityNumber, '123456789');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+      expect(result.birthDate, isEmpty);
     });
 
     test('bundled Arabic and English traineddata hashes are pinned', () async {
@@ -675,4 +754,122 @@ void main() {
     expect(fieldText('identity-national-id'), identity.identityNumber);
     expect(fieldText('identity-birth-date'), identity.birthDate);
   });
+
+  testWidgets('partial capture opens review and requires manual completion', (
+    tester,
+  ) async {
+    _mobileSize(tester);
+    final camera = FakeCamera();
+    final processor = FakeIdentityDocumentProcessor(
+      result: const IdentityData(
+        fullName: '',
+        identityNumber: '123456789',
+        birthDate: '',
+        address: '',
+      ),
+    );
+    IdentityData? submitted;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => IdentityCaptureScreen(
+            cameraFactory: () => camera,
+            permissions: FakePermissions(),
+            processor: processor,
+            onExtracted: (identity) {
+              Navigator.of(context).push(
+                PageRouteBuilder<void>(
+                  pageBuilder: (_, _, _) => IdentityDetailsScreen(
+                    initialData: identity,
+                    onContinue: (value) => submitted = value,
+                  ),
+                  transitionDuration: Duration.zero,
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    await tester.tap(find.text('التقاط الهوية'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(IdentityDetailsScreen), findsOneWidget);
+    expect(
+      find.text('تحقق من البيانات وأكمل أي حقل لم تتم قراءته تلقائيًا.'),
+      findsOneWidget,
+    );
+    String fieldText(String key) => tester
+        .widget<TextField>(
+          find.descendant(
+            of: find.byKey(ValueKey(key)),
+            matching: find.byType(TextField),
+          ),
+        )
+        .controller!
+        .text;
+    expect(fieldText('identity-national-id'), '123456789');
+    expect(fieldText('identity-full-name'), isEmpty);
+    expect(fieldText('identity-birth-date'), isEmpty);
+
+    await tester.tap(find.text('متابعة'));
+    await tester.pump();
+    expect(submitted, isNull);
+    await tester.enterText(
+      find.byKey(const ValueKey('identity-full-name')),
+      'أحمد محمد',
+    );
+    await tester.tap(find.text('متابعة'));
+    await tester.pump();
+    expect(submitted, isNull);
+    await tester.enterText(
+      find.byKey(const ValueKey('identity-birth-date')),
+      '07/11/2000',
+    );
+    await tester.tap(find.text('متابعة'));
+    await tester.pump();
+    expect(submitted?.identityNumber, '123456789');
+    expect(submitted?.fullName, 'أحمد محمد');
+    expect(submitted?.birthDate, '07/11/2000');
+  });
+
+  for (final entry in <String, IdentityData>{
+    'name only': const IdentityData(
+      fullName: 'أحمد محمد سالم خليل',
+      identityNumber: '',
+      birthDate: '',
+      address: '',
+    ),
+    'birth date only': const IdentityData(
+      fullName: '',
+      identityNumber: '',
+      birthDate: '07 / 11 / 2000',
+      address: '',
+    ),
+  }.entries) {
+    testWidgets('review receives ${entry.key} partial OCR', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: IdentityDetailsScreen(
+            initialData: entry.value,
+            onContinue: (_) {},
+          ),
+        ),
+      );
+      String fieldText(String key) => tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.byKey(ValueKey(key)),
+              matching: find.byType(TextField),
+            ),
+          )
+          .controller!
+          .text;
+      expect(fieldText('identity-full-name'), entry.value.fullName);
+      expect(fieldText('identity-national-id'), isEmpty);
+      expect(fieldText('identity-birth-date'), entry.value.birthDate);
+    });
+  }
 }

@@ -291,7 +291,7 @@ class _IdentityDetailsScreenState extends State<IdentityDetailsScreen> {
       const PageTitle('بيانات الحساب'),
       const SizedBox(height: 8),
       Text(
-        'راجع البيانات المستخرجة من الهوية وصححها عند الحاجة.',
+        'تحقق من البيانات وأكمل أي حقل لم تتم قراءته تلقائيًا.',
         style: AppType.body,
       ),
       const SizedBox(height: 26),

@@ -288,58 +288,93 @@ class TesseractIdentityDocumentProcessor implements IdentityDocumentProcessor {
         return text;
       }
 
+      Future<String?> recognizeRegion(
+        List<int> bytes,
+        String language,
+        IdentityOcrMode mode,
+      ) async {
+        try {
+          return await recognize(bytes, language, mode);
+        } on PlatformException catch (error) {
+          final failure = classifyOcrError(error);
+          if (failure.type ==
+                  IdentityScanFailureType.ocrInitializationFailure ||
+              failure.type == IdentityScanFailureType.tessdataAssetFailure) {
+            throw failure;
+          }
+          _identityOcrLog(
+            'recognize',
+            'status=skipped pass=${mode.name} code=${error.code}',
+          );
+          return null;
+        } on TimeoutException {
+          _identityOcrLog(
+            'recognize',
+            'status=skipped pass=${mode.name} code=timeout',
+          );
+          return null;
+        } on MissingPluginException {
+          rethrow;
+        } on Object catch (error) {
+          _identityOcrLog(
+            'recognize',
+            'status=skipped pass=${mode.name} type=${error.runtimeType}',
+          );
+          return null;
+        }
+      }
+
+      void logParse(IdentityData identity, String pass) {
+        final complete =
+            identity.identityNumber.isNotEmpty &&
+            identity.fullName.isNotEmpty &&
+            identity.birthDate.isNotEmpty;
+        _identityOcrLog(
+          'parse',
+          'status=${complete ? 'complete' : 'partial'} pass=$pass '
+              'id=${identity.identityNumber.isNotEmpty} '
+              'name=${identity.fullName.isNotEmpty} '
+              'birthDate=${identity.birthDate.isNotEmpty}',
+        );
+      }
+
       final text = await recognize(
         processed.bytes,
         'ara+eng',
         IdentityOcrMode.fullCard,
       );
-      _identityOcrLog('recognize', 'status=complete characters=${text.length}');
-      try {
-        final identity = IdentityTextParser.parse(text);
-        _identityOcrLog('parse', 'status=complete');
-        return identity;
-      } on IdentityScanFailure catch (error) {
-        _identityOcrLog(
-          'parse',
-          'status=retry type=${error.type} code=${error.technicalCode}',
-        );
-        if (error.type == IdentityScanFailureType.ambiguousIdentityData) {
-          rethrow;
-        }
+      final fullCard = IdentityTextParser.parse(text);
+      logParse(fullCard, 'fullCard');
+      if (fullCard.identityNumber.isNotEmpty &&
+          fullCard.fullName.isNotEmpty &&
+          fullCard.birthDate.isNotEmpty) {
+        return fullCard;
       }
 
       final regions = await IdentityCardRegions.extract(processed.bytes);
-      final idText = await recognize(
+      final idText = await recognizeRegion(
         regions.nationalId,
         'eng',
         IdentityOcrMode.nationalId,
       );
-      final nameText = await recognize(
+      final nameText = await recognizeRegion(
         regions.arabicNames,
         'ara',
         IdentityOcrMode.arabicNames,
       );
-      final dateText = await recognize(
+      final dateText = await recognizeRegion(
         regions.birthDate,
         'eng',
         IdentityOcrMode.birthDate,
       );
-      try {
-        final identity = IdentityTextParser.parse(
-          text,
-          nationalIdText: idText,
-          nameText: nameText,
-          birthDateText: dateText,
-        );
-        _identityOcrLog('parse', 'status=complete pass=regions');
-        return identity;
-      } on IdentityScanFailure catch (error) {
-        _identityOcrLog(
-          'parse',
-          'status=failed type=${error.type} code=${error.technicalCode}',
-        );
-        rethrow;
-      }
+      final identity = IdentityTextParser.parse(
+        text,
+        nationalIdText: idText,
+        nameText: nameText,
+        birthDateText: dateText,
+      );
+      logParse(identity, 'regions');
+      return identity;
     } on IdentityScanFailure {
       rethrow;
     } on TimeoutException {
@@ -442,18 +477,20 @@ class IdentityTextParser {
     String? birthDateText,
   }) {
     final lines = _lines(rawText);
-    if (lines.join().length < 12) {
-      throw const IdentityScanFailure(
-        'لم تظهر بيانات كافية في الصورة. أعد تصوير الوجه الأمامي للهوية.',
-        technicalCode: 'insufficient_text',
-      );
-    }
     return IdentityData(
-      identityNumber: _nationalId(lines, nationalIdText),
-      fullName: _arabicName(lines, nameText),
-      birthDate: _birthDate(lines, birthDateText),
+      identityNumber: _extractOrEmpty(() => _nationalId(lines, nationalIdText)),
+      fullName: _extractOrEmpty(() => _arabicName(lines, nameText)),
+      birthDate: _extractOrEmpty(() => _birthDate(lines, birthDateText)),
       address: '',
     );
+  }
+
+  static String _extractOrEmpty(String Function() extract) {
+    try {
+      return extract();
+    } on IdentityScanFailure {
+      return '';
+    }
   }
 
   static List<String> _lines(String text) => normalizeDigits(text)
@@ -516,10 +553,8 @@ class IdentityTextParser {
 
   static String _birthDate(List<String> lines, String? regionText) {
     final labeled = <DateTime>{};
-    var sawLabel = false;
     for (var i = 0; i < lines.length; i++) {
       if (!_birthLabel.hasMatch(lines[i])) continue;
-      sawLabel = true;
       final same = _validDates(lines[i]);
       if (same.isNotEmpty) {
         labeled.addAll(same);
@@ -544,12 +579,6 @@ class IdentityTextParser {
       );
     }
     if (targeted.isNotEmpty) dates.addAll(targeted);
-    final hasOtherDateLabel = lines.any(
-      (line) => line.contains('تاريخ') && !_birthLabel.hasMatch(line),
-    );
-    if (dates.isEmpty && !sawLabel && !hasOtherDateLabel) {
-      dates.addAll(_validDates(lines.join('\n')));
-    }
     if (dates.length > 1) {
       throw const IdentityScanFailure(
         'ظهرت عدة تواريخ ميلاد محتملة. أعد تصوير الهوية بوضوح.',
@@ -595,7 +624,8 @@ class IdentityTextParser {
   static String _arabicName(List<String> lines, String? regionText) {
     final components = <int, String>{};
     var sawSplitLabel = false;
-    for (final source in [lines, if (regionText != null) _lines(regionText)]) {
+    final sources = [lines, if (regionText != null) _lines(regionText)];
+    for (final source in sources) {
       final parsed = _splitNameFields(source);
       sawSplitLabel |= parsed.sawLabel;
       for (final entry in parsed.values.entries) {
@@ -610,19 +640,49 @@ class IdentityTextParser {
         components[entry.key] = entry.value;
       }
     }
+
+    final fullNames = <String>{
+      for (final source in sources) ..._labeledFullNames(source),
+    };
+    if (fullNames.length > 1) {
+      throw const IdentityScanFailure(
+        'تعذّر تمييز الاسم العربي. أعد تصوير الهوية بوضوح.',
+        type: IdentityScanFailureType.ambiguousIdentityData,
+        technicalCode: 'conflicting_name_fields',
+      );
+    }
+
     if (sawSplitLabel) {
       if (components.length >= 3) {
-        return [
+        final splitName = [
           for (var i = 0; i < 4; i++)
             if (components.containsKey(i)) components[i]!,
         ].join(' ');
+        if (fullNames.isNotEmpty && fullNames.single != splitName) {
+          throw const IdentityScanFailure(
+            'تعذّر تمييز الاسم العربي. أعد تصوير الهوية بوضوح.',
+            type: IdentityScanFailureType.ambiguousIdentityData,
+            technicalCode: 'conflicting_name_fields',
+          );
+        }
+        return splitName;
       }
+      if (fullNames.isNotEmpty) return fullNames.single;
       throw const IdentityScanFailure(
         'لم نتمكن من قراءة الاسم العربي الكامل. أعد تصوير الهوية بوضوح.',
         technicalCode: 'arabic_name_missing',
       );
     }
-    // Compatibility with cards that explicitly print one full-name field.
+    if (fullNames.isNotEmpty) return fullNames.single;
+    throw const IdentityScanFailure(
+      'لم نتمكن من قراءة الاسم العربي الكامل. أعد تصوير الهوية بوضوح.',
+      technicalCode: 'arabic_name_missing',
+    );
+  }
+
+  // Compatibility with cards that explicitly print one full-name field.
+  static Set<String> _labeledFullNames(List<String> lines) {
+    final names = <String>{};
     for (var i = 0; i < lines.length; i++) {
       if (!_fullNameLabel.hasMatch(lines[i])) continue;
       for (final candidate in [
@@ -635,15 +695,13 @@ class IdentityTextParser {
             .toList();
         if (words.length >= 3 &&
             words.length <= 5 &&
+            _fieldIndex(candidate) == null &&
             !_isOtherFieldLabel(candidate)) {
-          return words.join(' ');
+          names.add(words.join(' '));
         }
       }
     }
-    throw const IdentityScanFailure(
-      'لم نتمكن من قراءة الاسم العربي الكامل. أعد تصوير الهوية بوضوح.',
-      technicalCode: 'arabic_name_missing',
-    );
+    return names;
   }
 
   static _SplitNameResult _splitNameFields(List<String> lines) {
