@@ -5,6 +5,7 @@ import 'package:firepin_ui/core/services/camera_service.dart';
 import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/identity_document_processor.dart';
+import 'package:firepin_ui/features/onboarding/identity_image_processor.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
 import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
@@ -263,18 +264,29 @@ class FakeIdentityDocumentProcessor implements IdentityDocumentProcessor {
       address: '',
     ),
     this.failure,
+    this.failuresRemaining,
   });
 
   final IdentityData result;
   final IdentityScanFailure? failure;
+  int? failuresRemaining;
   int calls = 0;
   Uint8List? receivedImage;
+  IdentityCaptureRegion? receivedRegion;
 
   @override
-  Future<IdentityData> extract(Uint8List imageBytes) async {
+  Future<IdentityData> extract(
+    Uint8List imageBytes, {
+    IdentityCaptureRegion? region,
+  }) async {
     calls++;
     receivedImage = Uint8List.fromList(imageBytes);
-    if (failure != null) throw failure!;
+    receivedRegion = region;
+    if (failure != null &&
+        (failuresRemaining == null || failuresRemaining! > 0)) {
+      if (failuresRemaining != null) failuresRemaining = failuresRemaining! - 1;
+      throw failure!;
+    }
     return result;
   }
 }

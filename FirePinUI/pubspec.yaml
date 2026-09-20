@@ -47,6 +47,11 @@ dependencies:
   flutter_map: ^8.3.2
   latlong2: ^0.10.1
   tesseract_ocr: ^0.5.0
+  # Pure-Dart decoding/cropping keeps captured identity images out of native
+  # galleries while baking EXIF orientation before OCR.
+  image: ^4.10.1
+  crypto: ^3.0.7
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

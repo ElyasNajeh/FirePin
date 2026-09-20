@@ -44,6 +44,9 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // App-owned OCR channel: unlike the upstream Flutter wrapper, this checks
+    // TessBaseAPI.init() and reports worker-thread failures back to Dart.
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.8.0")
 }
 
 flutter {

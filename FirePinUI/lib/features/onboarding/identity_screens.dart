@@ -7,6 +7,7 @@ import '../../core/ui/components.dart';
 import '../../core/ui/live_camera.dart';
 import '../../theme/app_theme.dart';
 import 'identity_document_processor.dart';
+import 'identity_image_processor.dart';
 import 'onboarding_models.dart';
 
 class IdentityCaptureScreen extends StatefulWidget {
@@ -31,12 +32,14 @@ class IdentityCaptureScreen extends StatefulWidget {
 
 class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
   final _camera = GlobalKey<LiveCameraState>();
+  final _identityFrame = GlobalKey();
   bool _ready = false;
   bool _processing = false;
   String? _error;
 
   Future<void> _capture() async {
     if (!_ready || _processing) return;
+    final captureRegion = _currentCaptureRegion();
     setState(() {
       _processing = true;
       _error = null;
@@ -48,7 +51,10 @@ class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
           'تعذّر التقاط الصورة. ثبّت الهاتف وأعد المحاولة.',
         );
       }
-      final identity = await widget.processor.extract(image);
+      final identity = await widget.processor.extract(
+        image,
+        region: captureRegion,
+      );
       if (mounted) widget.onExtracted(identity);
     } on IdentityScanFailure catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -62,6 +68,24 @@ class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
     } finally {
       if (mounted) setState(() => _processing = false);
     }
+  }
+
+  IdentityCaptureRegion? _currentCaptureRegion() {
+    final previewBox = _camera.currentContext?.findRenderObject() as RenderBox?;
+    final frameBox =
+        _identityFrame.currentContext?.findRenderObject() as RenderBox?;
+    if (previewBox == null ||
+        frameBox == null ||
+        !previewBox.hasSize ||
+        !frameBox.hasSize) {
+      return null;
+    }
+    final previewOrigin = previewBox.localToGlobal(Offset.zero);
+    final frameOrigin = frameBox.localToGlobal(Offset.zero) - previewOrigin;
+    return IdentityCaptureRegion(
+      previewSize: previewBox.size,
+      guideRect: frameOrigin & frameBox.size,
+    );
   }
 
   @override
@@ -117,11 +141,14 @@ class _IdentityCaptureScreenState extends State<IdentityCaptureScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 18),
                 child: AspectRatio(
                   aspectRatio: 1.58,
-                  child: Container(
+                  child: KeyedSubtree(
                     key: const ValueKey('identity-card-frame'),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white, width: 3),
+                    child: Container(
+                      key: _identityFrame,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white, width: 3),
+                      ),
                     ),
                   ),
                 ),
