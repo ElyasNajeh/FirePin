@@ -3,6 +3,7 @@ import '../core/services/device_services.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_repositories.dart';
 import '../features/incidents/incident_controller.dart';
+import '../features/incidents/shared_mock_incident_client.dart';
 import '../features/municipality/municipality_repository.dart';
 import '../features/onboarding/onboarding_services.dart';
 
@@ -17,6 +18,8 @@ class AppServices {
     LocationService? location,
     CameraSourceFactory? camera,
     IncidentController? incidents,
+    SharedMockIncidentClient? sharedIncidents,
+    Duration incidentPollInterval = const Duration(seconds: 1),
     MunicipalityRepository? operations,
     AuthRepository? auth,
     MunicipalityAuthRepository? municipalityAuth,
@@ -29,7 +32,12 @@ class AppServices {
     this.permissions = permissions ?? NativeDevicePermissions();
     this.location = location ?? NativeLocationService();
     this.camera = camera ?? NativeCameraSource.new;
-    this.incidents = incidents ?? IncidentController();
+    this.incidents =
+        incidents ??
+        IncidentController(
+          sharedClient: sharedIncidents ?? DioSharedMockIncidentClient(),
+          pollInterval: incidentPollInterval,
+        );
     this.operations =
         operations ?? LocalMunicipalityRepository(incidents: this.incidents);
     final userAuth = auth ?? DemoAuthRepository(this.operations);

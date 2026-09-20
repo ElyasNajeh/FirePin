@@ -201,9 +201,9 @@ class _StatusCard extends StatelessWidget {
     if (perspective == IncidentPerspective.reporter) {
       return [
         _ActionButton(
-          label: incident.photo == null
-              ? 'تفاصيل صورة البلاغ'
-              : 'رؤية الصورة المرسلة',
+          label: incident.hasPhoto
+              ? 'رؤية الصورة المرسلة'
+              : 'تفاصيل صورة البلاغ',
           onTap: onViewPhoto,
         ),
       ];
@@ -212,7 +212,7 @@ class _StatusCard extends StatelessWidget {
       if (incident.nearbyCitizenAcknowledged) {
         return [
           _ActionButton(
-            label: incident.photo == null
+            label: !incident.hasPhoto
                 ? 'لا توجد صورة للبلاغ'
                 : 'رؤية الصورة المرسلة',
             onTap: onViewPhoto,

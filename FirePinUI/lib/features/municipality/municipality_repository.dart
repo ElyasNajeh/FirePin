@@ -94,6 +94,7 @@ abstract interface class MunicipalityRepository implements Listenable {
   List<VolunteerApplicationRecord> get applications;
   List<VolunteerRecord> get volunteers;
   List<MunicipalityIncidentRecord> get incidents;
+  bool get hasSyncError;
   void acceptApplication(String id);
   void rejectApplication(String id);
   ApplicationStatus applicationStatusFor(String nationalId);
@@ -199,17 +200,20 @@ class LocalMunicipalityRepository extends ChangeNotifier
   List<VolunteerRecord> get volunteers => List.unmodifiable(_volunteers);
 
   @override
+  bool get hasSyncError => _incidentController.hasSyncError;
+
+  @override
   List<MunicipalityIncidentRecord> get incidents {
-    final local = _incidentController.incident;
     return [
-      if (local != null)
+      for (final local in _incidentController.incidents)
         MunicipalityIncidentRecord(
           id: local.id,
           stage: local.stage,
           reportedAt: local.reportedAt,
           reporterName: local.reporterName ?? 'مستخدم FirePin',
           reporterPhone: local.reporterPhone,
-          reporterNationalId: local.reporterNationalId ?? 'غير متاح',
+          reporterNationalId:
+              local.reporterNationalId ?? local.reporterId ?? 'غير متاح',
           locationLabel: 'موقع البلاغ المحدد على الخريطة',
           latitude: local.fireLocation.latitude,
           longitude: local.fireLocation.longitude,

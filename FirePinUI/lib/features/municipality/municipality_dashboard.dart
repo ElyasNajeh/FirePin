@@ -130,7 +130,7 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
         Row(
           children: [
             Expanded(child: PageTitle(_label(_section))),
-            _LiveStatus(),
+            _LiveStatus(connected: !widget.repository.hasSyncError),
           ],
         ),
         const SizedBox(height: 22),
@@ -921,13 +921,24 @@ class _StatusBadge extends StatelessWidget {
 }
 
 class _LiveStatus extends StatelessWidget {
+  const _LiveStatus({required this.connected});
+  final bool connected;
+
   @override
-  Widget build(BuildContext context) => const Row(
+  Widget build(BuildContext context) => Row(
     mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(Icons.circle, size: 9, color: Color(0xFF2E8B62)),
-      SizedBox(width: 7),
-      Text('مركز العمليات متصل'),
+    children: <Widget>[
+      Icon(
+        Icons.circle,
+        size: 9,
+        color: connected ? const Color(0xFF2E8B62) : const Color(0xFFB26A00),
+      ),
+      const SizedBox(width: 7),
+      Text(
+        connected
+            ? 'مركز العمليات متصل'
+            : 'الخادم التجريبي غير متاح · ستتم إعادة المحاولة',
+      ),
     ],
   );
 }

@@ -6,6 +6,7 @@ import 'package:firepin_ui/core/services/device_services.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
+import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:flutter/material.dart';
 
 final testPhoto = base64Decode(
@@ -113,4 +114,5 @@ AppServices fakeServices({
     delay: Duration(milliseconds: 1500),
   ),
   otp: otp ?? MockOtpService(delay: Duration.zero),
+  incidents: IncidentController(),
 );

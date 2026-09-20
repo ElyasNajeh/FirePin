@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -26,7 +28,25 @@ class _FirePinAppState extends State<FirePinApp> {
   @override
   void initState() {
     super.initState();
-    _services.authController.restore();
+    _services.authController.addListener(_syncIncidentPolling);
+    _syncIncidentPolling();
+    unawaited(_services.authController.restore());
+  }
+
+  void _syncIncidentPolling() {
+    switch (_services.authController.status) {
+      case AuthStatus.user || AuthStatus.municipality:
+        unawaited(_services.incidents.startPolling());
+      case AuthStatus.restoring || AuthStatus.signedOut:
+        _services.incidents.stopPolling();
+    }
+  }
+
+  @override
+  void dispose() {
+    _services.authController.removeListener(_syncIncidentPolling);
+    _services.incidents.stopPolling();
+    super.dispose();
   }
 
   @override
@@ -83,14 +103,19 @@ class _FirePinAppState extends State<FirePinApp> {
         services: _services,
         session: session,
         onClose: () => setState(() => _reporting = false),
-        onSubmitted: (photo) {
-          _services.incidents.report(
+        onSubmitted: (photo) async {
+          final submitted = await _services.incidents.report(
             location: session.location!,
             reporterPhone: session.phone,
+            reporterId: account.id,
             reporterName: account.fullName,
             reporterNationalId: account.nationalId,
             photo: photo,
           );
+          if (!submitted) {
+            throw StateError('Shared demo incident creation failed.');
+          }
+          if (!mounted) return;
           setState(() => _reporting = false);
         },
       );

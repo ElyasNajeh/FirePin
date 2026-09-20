@@ -45,8 +45,10 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _isReporter {
     final incident = _incident;
     return incident != null &&
-        _session.phone.isNotEmpty &&
-        incident.reporterPhone == _session.phone;
+        ((incident.reporterId?.isNotEmpty == true &&
+                incident.reporterId == _session.participantId) ||
+            (_session.phone.isNotEmpty &&
+                incident.reporterPhone == _session.phone));
   }
 
   bool get _isApprovedVolunteer =>
@@ -144,10 +146,10 @@ Future<void> showIncidentPhoto(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: Text(
-        incident.photo == null ? 'صورة البلاغ' : 'الصورة المرسلة',
+        incident.hasPhoto ? 'الصورة المرسلة' : 'صورة البلاغ',
         style: AppType.section,
       ),
-      content: incident.photo == null
+      content: !incident.hasPhoto
           ? Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -159,6 +161,23 @@ Future<void> showIncidentPhoto(
                 const SizedBox(height: 12),
                 Text(
                   'تم إرسال هذا البلاغ بدون صورة.',
+                  textAlign: TextAlign.center,
+                  style: AppType.caption,
+                ),
+              ],
+            )
+          : incident.photo == null
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.cloud_done_outlined,
+                  size: 48,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'تم تسجيل وجود صورة في الخادم التجريبي، لكن بايتات الصورة تبقى على جهاز المُبلّغ فقط.',
                   textAlign: TextAlign.center,
                   style: AppType.caption,
                 ),

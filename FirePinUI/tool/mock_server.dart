@@ -206,6 +206,7 @@ class _SharedDemoState {
       reporterId: _requiredString(reporter, 'id'),
       reporterName: _requiredString(reporter, 'displayName'),
       reporterPhone: _requiredString(reporter, 'phone'),
+      reporterNationalId: _optionalString(reporter, 'nationalId'),
       latitude: _requiredCoordinate(fireLocation, 'latitude', -90, 90),
       longitude: _requiredCoordinate(fireLocation, 'longitude', -180, 180),
       photoMetadata: _optionalObject(body, 'photoMetadata'),
@@ -343,6 +344,7 @@ class _SharedIncident {
     required this.reporterId,
     required this.reporterName,
     required this.reporterPhone,
+    required this.reporterNationalId,
     required this.latitude,
     required this.longitude,
     required this.photoMetadata,
@@ -354,6 +356,7 @@ class _SharedIncident {
   final String reporterId;
   final String reporterName;
   final String reporterPhone;
+  final String? reporterNationalId;
   final double latitude;
   final double longitude;
   final Map<String, dynamic>? photoMetadata;
@@ -385,6 +388,7 @@ class _SharedIncident {
       'id': reporterId,
       'displayName': reporterName,
       'phone': reporterPhone,
+      'nationalId': reporterNationalId,
     },
     'fireLocation': {'latitude': latitude, 'longitude': longitude},
     'photoMetadata': photoMetadata,
@@ -480,6 +484,13 @@ Map<String, dynamic>? _optionalObject(
 
 String _requiredString(Map<String, dynamic> source, String field) {
   final value = source[field];
+  if (value is String && value.trim().isNotEmpty) return value.trim();
+  throw _invalidField(field);
+}
+
+String? _optionalString(Map<String, dynamic> source, String field) {
+  final value = source[field];
+  if (value == null) return null;
   if (value is String && value.trim().isNotEmpty) return value.trim();
   throw _invalidField(field);
 }

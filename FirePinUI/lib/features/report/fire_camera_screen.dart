@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../app/app_services.dart';
@@ -21,7 +23,7 @@ class FireCameraScreen extends StatefulWidget {
   });
   final AppServices services;
   final OnboardingSession session;
-  final ValueChanged<Uint8List?> onSubmitted;
+  final FutureOr<void> Function(Uint8List? photo) onSubmitted;
   final VoidCallback onClose;
   @override
   State<FireCameraScreen> createState() => _FireCameraScreenState();
@@ -100,8 +102,9 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
         location: fix,
       );
       if (!mounted) return;
+      await widget.onSubmitted(withPhoto ? _image : null);
+      if (!mounted) return;
       HapticFeedback.mediumImpact();
-      widget.onSubmitted(withPhoto ? _image : null);
     } on LocationFailure catch (error) {
       if (mounted) {
         setState(() {

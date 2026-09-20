@@ -4,7 +4,6 @@ import '../../core/ui/components.dart';
 import '../../core/ui/motion.dart';
 import '../auth/login_screens.dart';
 import '../home/home_screen.dart';
-import '../incidents/incident_controller.dart';
 import '../municipality/municipality_repository.dart';
 import '../report/fire_camera_screen.dart';
 import '../welcome/welcome_screen.dart';
@@ -45,7 +44,6 @@ class OnboardingFlow extends StatefulWidget {
 class _OnboardingFlowState extends State<OnboardingFlow> {
   final _navigator = GlobalKey<NavigatorState>();
   final _session = OnboardingSession();
-  final _incidents = IncidentController();
   String _current = OnboardingStep.welcome.name;
   late final _observer = _FlowObserver((name) => _current = name);
 
@@ -180,18 +178,25 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
       hasLocation: _session.location != null,
       onReport: () => _go(OnboardingStep.fireCamera),
       session: _session,
-      incidentController: _incidents,
+      incidentController: widget.services.incidents,
     ),
     OnboardingStep.fireCamera => FireCameraScreen(
       services: widget.services,
       session: _session,
       onClose: _back,
-      onSubmitted: (photo) {
-        _incidents.report(
+      onSubmitted: (photo) async {
+        final submitted = await widget.services.incidents.report(
           location: _session.location!,
           reporterPhone: _session.phone,
+          reporterId: _session.participantId,
+          reporterName: _session.identity?.fullName,
+          reporterNationalId: _session.identity?.identityNumber,
           photo: photo,
         );
+        if (!submitted) {
+          throw StateError('Shared demo incident creation failed.');
+        }
+        if (!mounted) return;
         _go(OnboardingStep.home, clear: true);
       },
     ),
@@ -209,7 +214,6 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
   @override
   void dispose() {
-    _incidents.dispose();
     _session.clearSensitiveData();
     super.dispose();
   }
