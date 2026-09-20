@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import socket
@@ -21,11 +22,12 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal, engine
 from app.features.auth.model import UserSession  # noqa: F401
+from app.features.auth import service as auth_service
 from app.features.auth.service import create_user_token
 from app.features.device_tokens.model import DeviceToken  # noqa: F401
 from app.features.fire_reports import router as report_router
 from app.features.fire_reports import service as report_service
-from app.features.fire_reports.model import FireReport
+from app.features.fire_reports.model import FireReport, FireReportStatus
 from app.features.fire_reports.schema import FireReportCreate, FireReportListParams
 from app.features.municipalities.model import Municipality
 from app.features.municipalities.service import create_municipality_token
@@ -156,6 +158,26 @@ class FireReportIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     pin="1357",
                 ),
             )
+            self.second_volunteer_user = await user_service.register_user(
+                db,
+                UserRegister(
+                    full_name="Second Volunteer",
+                    phone=f"057{str(uuid4().int)[:7]}",
+                    national_id=str(uuid4().int)[:9],
+                    birth_date=date(1994, 3, 4),
+                    pin="8642",
+                ),
+            )
+            self.other_municipality_user = await user_service.register_user(
+                db,
+                UserRegister(
+                    full_name="Other Municipality Volunteer",
+                    phone=f"058{str(uuid4().int)[:7]}",
+                    national_id=str(uuid4().int)[:9],
+                    birth_date=date(1993, 4, 5),
+                    pin="9753",
+                ),
+            )
             self.near = Municipality(
                 name=f"Near {suffix}",
                 email=f"near-{suffix}@example.com",
@@ -188,36 +210,62 @@ class FireReportIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 user_id=self.other_user.id,
                 municipality_id=self.near.id,
             )
-            db.add(self.volunteer)
+            self.second_volunteer = Volunteer(
+                user_id=self.second_volunteer_user.id,
+                municipality_id=self.near.id,
+            )
+            self.other_municipality_volunteer = Volunteer(
+                user_id=self.other_municipality_user.id,
+                municipality_id=self.far.id,
+            )
+            db.add_all(
+                [
+                    self.volunteer,
+                    self.second_volunteer,
+                    self.other_municipality_volunteer,
+                ]
+            )
             await db.commit()
-            await db.refresh(self.volunteer)
+            for volunteer in (
+                self.volunteer,
+                self.second_volunteer,
+                self.other_municipality_volunteer,
+            ):
+                await db.refresh(volunteer)
 
         self.user_id = self.user.id
         self.other_user_id = self.other_user.id
+        self.user_ids = [
+            self.user.id,
+            self.other_user.id,
+            self.second_volunteer_user.id,
+            self.other_municipality_user.id,
+        ]
+        self.volunteer_ids = [
+            self.volunteer.id,
+            self.second_volunteer.id,
+            self.other_municipality_volunteer.id,
+        ]
         self.municipality_ids = [self.near.id, self.far.id, self.inactive.id]
 
     async def asyncTearDown(self) -> None:
         async with AsyncSessionLocal() as db:
             await db.execute(
                 delete(FireReport).where(
-                    FireReport.reporter_id.in_([self.user_id, self.other_user_id])
+                    FireReport.reporter_id.in_(self.user_ids)
                 )
             )
             await db.execute(
                 delete(Volunteer).where(
-                    Volunteer.user_id.in_([self.user_id, self.other_user_id])
+                    Volunteer.user_id.in_(self.user_ids)
                 )
             )
             await db.execute(
                 delete(VolunteerApplication).where(
-                    VolunteerApplication.user_id.in_(
-                        [self.user_id, self.other_user_id]
-                    )
+                    VolunteerApplication.user_id.in_(self.user_ids)
                 )
             )
-            await db.execute(
-                delete(User).where(User.id.in_([self.user_id, self.other_user_id]))
-            )
+            await db.execute(delete(User).where(User.id.in_(self.user_ids)))
             await db.execute(
                 delete(Municipality).where(
                     Municipality.id.in_(self.municipality_ids)
@@ -374,6 +422,149 @@ class FireReportIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertIsNotNone(persisted)
                 self.assertEqual(persisted.status, "pending")
+
+    async def test_report_views_are_scoped_to_volunteer_and_municipality(self) -> None:
+        report = await self.create(self.user)
+        async with AsyncSessionLocal() as db:
+            own_volunteer = await db.get(Volunteer, self.volunteer.id)
+            other_volunteer = await db.get(
+                Volunteer,
+                self.other_municipality_volunteer.id,
+            )
+            own_page = await report_service.get_volunteer_reports(
+                db,
+                own_volunteer,
+                FireReportListParams(page=1, limit=100),
+            )
+            other_page = await report_service.get_volunteer_reports(
+                db,
+                other_volunteer,
+                FireReportListParams(page=1, limit=100),
+            )
+            self.assertEqual([item.id for item in own_page["items"]], [report.id])
+            self.assertEqual(other_page["items"], [])
+
+            with self.assertRaises(HTTPException) as hidden:
+                await report_service.get_volunteer_report(
+                    db,
+                    other_volunteer,
+                    report.id,
+                )
+            self.assertEqual(hidden.exception.status_code, 404)
+
+            own_municipality_page = await report_service.get_municipality_reports(
+                db,
+                self.near,
+                FireReportListParams(page=1, limit=100),
+            )
+            other_municipality_page = await report_service.get_municipality_reports(
+                db,
+                self.far,
+                FireReportListParams(page=1, limit=100),
+            )
+            self.assertEqual(
+                [item.id for item in own_municipality_page["items"]],
+                [report.id],
+            )
+            self.assertEqual(other_municipality_page["items"], [])
+            detail = await report_service.get_municipality_report(
+                db,
+                self.near,
+                report.id,
+            )
+            self.assertEqual(detail.id, report.id)
+
+    async def test_claim_and_resolve_enforce_assignment_and_municipality(self) -> None:
+        report = await self.create(self.user)
+        with patch.object(
+            report_service.notification_service,
+            "notify_report_claimed",
+            new=AsyncMock(),
+        ), patch.object(
+            report_service.notification_service,
+            "notify_report_resolved",
+            new=AsyncMock(),
+        ):
+            async with AsyncSessionLocal() as db:
+                volunteer = await db.get(Volunteer, self.volunteer.id)
+                competitor = await db.get(Volunteer, self.second_volunteer.id)
+                outsider = await db.get(
+                    Volunteer,
+                    self.other_municipality_volunteer.id,
+                )
+
+                with self.assertRaises(HTTPException) as outside_claim:
+                    await report_service.claim_report(db, outsider, report.id)
+                self.assertEqual(outside_claim.exception.status_code, 404)
+
+                claimed = await report_service.claim_report(db, volunteer, report.id)
+                self.assertEqual(claimed.status, FireReportStatus.ASSIGNED.value)
+                self.assertEqual(claimed.assigned_volunteer_id, volunteer.id)
+
+                with self.assertRaises(HTTPException) as competing_claim:
+                    await report_service.claim_report(db, competitor, report.id)
+                self.assertEqual(competing_claim.exception.status_code, 409)
+
+                with self.assertRaises(HTTPException) as wrong_resolver:
+                    await report_service.resolve_report(db, competitor, report.id)
+                self.assertEqual(wrong_resolver.exception.status_code, 404)
+
+                resolved = await report_service.resolve_report(
+                    db,
+                    volunteer,
+                    report.id,
+                )
+                self.assertEqual(resolved.status, FireReportStatus.RESOLVED.value)
+                self.assertEqual(resolved.assigned_volunteer_id, volunteer.id)
+
+    async def test_concurrent_claim_assigns_exactly_one_volunteer(self) -> None:
+        report = await self.create(self.user)
+        notify = AsyncMock()
+        with patch.object(
+            report_service.notification_service,
+            "notify_report_claimed",
+            notify,
+        ):
+            async with (
+                AsyncSessionLocal() as first_db,
+                AsyncSessionLocal() as second_db,
+            ):
+                first = await first_db.get(Volunteer, self.volunteer.id)
+                second = await second_db.get(Volunteer, self.second_volunteer.id)
+                results = await asyncio.gather(
+                    report_service.claim_report(first_db, first, report.id),
+                    report_service.claim_report(second_db, second, report.id),
+                    return_exceptions=True,
+                )
+
+        successes = [item for item in results if isinstance(item, FireReport)]
+        conflicts = [item for item in results if isinstance(item, HTTPException)]
+        self.assertEqual(len(successes), 1)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].status_code, 409)
+        self.assertEqual(notify.await_count, 1)
+        async with AsyncSessionLocal() as db:
+            persisted = await db.get(FireReport, report.id)
+            self.assertEqual(persisted.status, FireReportStatus.ASSIGNED.value)
+            self.assertIn(
+                persisted.assigned_volunteer_id,
+                [self.volunteer.id, self.second_volunteer.id],
+            )
+
+    async def test_municipality_token_cannot_reach_user_mutation_dependency(self) -> None:
+        token = create_municipality_token(
+            self.near.id,
+            "access",
+            timedelta(minutes=5),
+        )
+        credentials = HTTPAuthorizationCredentials(
+            scheme="Bearer",
+            credentials=token,
+        )
+        async with AsyncSessionLocal() as db:
+            with self.assertRaises(HTTPException) as rejected:
+                await auth_service.get_current_user(credentials, db)
+        self.assertEqual(rejected.exception.status_code, 401)
 
 
 if __name__ == "__main__":

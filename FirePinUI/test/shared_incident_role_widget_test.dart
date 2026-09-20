@@ -12,7 +12,7 @@ import 'test_fakes.dart';
 
 void main() {
   testWidgets(
-    'shared projection isolates user routes and exposes all to municipality',
+    'shared fixture isolates user routes and projects one municipality assignment',
     (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(1200, 900);
@@ -110,8 +110,9 @@ void main() {
       expect(
         operations.incidents
             .singleWhere((incident) => incident.id == 'demo-incident-1')
-            .responderCount,
-        2,
+            .assignedVolunteer
+            ?.volunteerId,
+        'user-volunteer',
       );
       expect(_municipalityMarker('user-volunteer'), findsNothing);
       expect(_municipalityMarker('user-volunteer-2'), findsNothing);
@@ -127,8 +128,9 @@ void main() {
       expect(
         operations.incidents
             .singleWhere((incident) => incident.id == 'demo-incident-1')
-            .responderCount,
-        1,
+            .assignedVolunteer
+            ?.volunteerId,
+        'user-volunteer-2',
       );
       expect(_municipalityMarker('user-volunteer-2'), findsNothing);
 
@@ -139,7 +141,7 @@ void main() {
         (incident) => incident.id == 'demo-incident-1',
       );
       expect(sharedRecord.isResolved, isTrue);
-      expect(sharedRecord.responders, isEmpty);
+      expect(sharedRecord.assignedVolunteer, isNull);
       expect(_municipalityMarker('user-volunteer-2'), findsNothing);
     },
   );

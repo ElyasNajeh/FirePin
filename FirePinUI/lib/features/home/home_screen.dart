@@ -50,7 +50,8 @@ class _HomeScreenState extends State<HomeScreen> {
     ..phone = '059 123 4567';
 
   OnboardingSession get _session => widget.session ?? _fallbackSession;
-  FireIncident? get _incident => _incidents.incident;
+  FireIncident? get _incident =>
+      widget.reportRepository == null ? _incidents.incident : null;
   bool get _isReporter {
     final incident = _incident;
     return incident != null &&
@@ -92,6 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     role: _session.role,
                     repository: widget.reportRepository!,
                     location: widget.location!,
+                    viewerUserId: _session.accountId,
                   )
                 : AlertsScreen(
                     key: const ValueKey('alerts'),
@@ -104,7 +106,6 @@ class _HomeScreenState extends State<HomeScreen> {
           AppSection.account => AccountScreen(
             key: const ValueKey('account'),
             session: _session,
-            incidentController: _incidents,
             onChangePin: () =>
                 showFeedback(context, 'تغيير رمز الدخول سيتوفر مع ربط الحساب.'),
             onLogout: widget.onLogout == null

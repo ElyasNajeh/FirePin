@@ -510,7 +510,9 @@ void main() {
     },
   );
 
-  testWidgets('volunteer call advances to active response', (tester) async {
+  testWidgets('legacy volunteer fixture does not leak en-route account state', (
+    tester,
+  ) async {
     mobileSize(tester);
     final session = OnboardingSession()
       ..accountId = 'volunteer-a'
@@ -544,7 +546,7 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     await tapLabel(tester, 'الحساب');
     expect(find.text('✓ متطوع معتمد'), findsOneWidget);
-    expect(find.text('استجابة نشطة · أنت في الطريق'), findsOneWidget);
+    expect(find.text('متاح لاستقبال بلاغات البلدية'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

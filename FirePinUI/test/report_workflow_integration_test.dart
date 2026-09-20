@@ -1,0 +1,535 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+import 'package:firepin_ui/core/network/api_client.dart';
+import 'package:firepin_ui/core/services/device_services.dart';
+import 'package:firepin_ui/core/storage/token_storage.dart';
+import 'package:firepin_ui/core/ui/components.dart';
+import 'package:firepin_ui/features/auth/auth_models.dart';
+import 'package:firepin_ui/features/home/home_screen.dart';
+import 'package:firepin_ui/features/incidents/incident_controller.dart';
+import 'package:firepin_ui/features/municipality/municipality_dashboard.dart';
+import 'package:firepin_ui/features/municipality/municipality_repository.dart';
+import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
+import 'package:firepin_ui/features/report/fire_report_repository.dart';
+import 'package:firepin_ui/features/report/fire_reports_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test(
+    'claim and resolve use the real authenticated workflow endpoints',
+    () async {
+      final fixture = WorkflowFixture();
+      final repository = await fixture.repository();
+
+      final pending = (await repository.getVolunteerReports()).single;
+      final claimed = await repository.claimReport(pending.id);
+      final resolved = await repository.resolveReport(pending.id);
+
+      expect(pending.status, FireReportStatus.pending);
+      expect(claimed.status, FireReportStatus.assigned);
+      expect(claimed.assignedVolunteer?.userId, 13);
+      expect(resolved.status, FireReportStatus.resolved);
+      expect(
+        fixture.adapter.requests.map((request) => request.path),
+        containsAllInOrder([
+          '/volunteers/me/fire-reports',
+          '/volunteers/me/fire-reports/91/claim',
+          '/volunteers/me/fire-reports/91/resolve',
+        ]),
+      );
+      expect(
+        fixture.adapter.requests.every(
+          (request) => request.headers['Authorization'] == 'Bearer access',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets('claim success reloads authoritative state and enables resolve', (
+    tester,
+  ) async {
+    useTallTestView(tester);
+    final repository = MutableWorkflowRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FireReportDetailScreen(
+          report: repository.report,
+          volunteer: true,
+          repository: repository,
+          location: const WorkflowLocation(),
+          viewerUserId: '13',
+        ),
+      ),
+    );
+
+    final claim = find.byKey(const ValueKey('claim-fire-report'));
+    tester.widget<AppButton>(claim).onPressed!();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(repository.claims, 1);
+    expect(repository.detailLoads, 1);
+    expect(repository.routeLoads, 1);
+    expect(find.byKey(const ValueKey('resolve-fire-report')), findsOneWidget);
+  });
+
+  testWidgets('claim conflict reports it and reloads the winning assignment', (
+    tester,
+  ) async {
+    useTallTestView(tester);
+    final repository = MutableWorkflowRepository(conflictOnClaim: true);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FireReportDetailScreen(
+          report: repository.report,
+          volunteer: true,
+          repository: repository,
+          location: const WorkflowLocation(),
+          viewerUserId: '13',
+        ),
+      ),
+    );
+
+    final claim = find.byKey(const ValueKey('claim-fire-report'));
+    tester.widget<AppButton>(claim).onPressed!();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(repository.claims, 1);
+    expect(repository.detailLoads, 1);
+    expect(repository.routeLoads, 0);
+    expect(find.textContaining('متطوع آخر'), findsWidgets);
+    expect(find.byKey(const ValueKey('resolve-fire-report')), findsNothing);
+  });
+
+  testWidgets('assigned volunteer resolve reloads the resolved state', (
+    tester,
+  ) async {
+    useTallTestView(tester);
+    final repository = MutableWorkflowRepository(
+      initialReport: workflowReport(
+        FireReportStatus.assigned,
+        assignedUserId: 13,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FireReportDetailScreen(
+          report: repository.report,
+          volunteer: true,
+          repository: repository,
+          location: const WorkflowLocation(),
+          viewerUserId: '13',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    final resolve = find.byKey(const ValueKey('resolve-fire-report'));
+    tester.widget<AppButton>(resolve).onPressed!();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(repository.resolutions, 1);
+    expect(repository.detailLoads, 1);
+    expect(repository.report.status, FireReportStatus.resolved);
+    expect(find.byKey(const ValueKey('resolve-fire-report')), findsNothing);
+  });
+
+  test(
+    'municipality loads assigned report data from its read-only endpoint',
+    () async {
+      final fixture = MunicipalityWorkflowFixture();
+      final repository = await fixture.repository();
+
+      await repository.loadVolunteerData();
+
+      expect(repository.incidents, hasLength(1));
+      expect(repository.incidents.single.id, '#91');
+      expect(
+        repository.incidents.single.stage,
+        IncidentStage.responderAccepted,
+      );
+      expect(
+        repository.incidents.single.assignedVolunteer?.displayName,
+        'Assigned Volunteer',
+      );
+      final reportRequests = fixture.adapter.requests.where(
+        (request) => request.path == '/municipalities/auth/fire-reports',
+      );
+      expect(reportRequests, hasLength(1));
+      expect(reportRequests.single.method, 'GET');
+      expect(
+        reportRequests.single.headers['Authorization'],
+        'Bearer municipality-access',
+      );
+      repository.dispose();
+    },
+  );
+
+  testWidgets('municipality report details are read-only', (tester) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = MunicipalityWorkflowFixture();
+    final repository = await fixture.repository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MunicipalityDashboard(
+          account: const MunicipalityAccount(
+            id: '734',
+            name: 'Municipality',
+            email: 'municipality@example.com',
+            serviceArea: '',
+            isActive: true,
+          ),
+          repository: repository,
+          onLogout: () async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.tap(find.text('#91').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Assigned Volunteer'), findsWidgets);
+    expect(find.byKey(const ValueKey('claim-fire-report')), findsNothing);
+    expect(find.byKey(const ValueKey('resolve-fire-report')), findsNothing);
+    repository.dispose();
+  });
+
+  test('municipality API failure has no incident mock fallback', () async {
+    final fixture = MunicipalityWorkflowFixture()..fail = true;
+    final repository = await fixture.repository();
+
+    await expectLater(
+      repository.loadVolunteerData(),
+      throwsA(isA<DioException>()),
+    );
+    expect(repository.incidents, isEmpty);
+    repository.dispose();
+  });
+
+  testWidgets('real report integration ignores the legacy runtime incident', (
+    tester,
+  ) async {
+    final legacy = IncidentController(
+      incident: FireIncident(
+        id: 'legacy-fake',
+        stage: IncidentStage.responderEnRoute,
+        reportedAt: DateTime(2026, 9, 20),
+        fireLocation: const LocationFix(31.79, 35.25, 5),
+        reporterPhone: '0590000000',
+        photo: null,
+        events: const [],
+      ),
+    );
+    addTearDown(legacy.dispose);
+    final session = OnboardingSession()
+      ..accountId = '13'
+      ..role = UsageRole.volunteer;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          hasLocation: true,
+          onReport: () {},
+          session: session,
+          incidentController: legacy,
+          reportRepository: MutableWorkflowRepository(),
+          location: const WorkflowLocation(),
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('volunteer-ready')), findsOneWidget);
+    expect(find.textContaining('legacy-fake'), findsNothing);
+  });
+}
+
+void useTallTestView(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800, 1200);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+class WorkflowFixture {
+  final storage = WorkflowTokenStorage();
+  late final adapter = WorkflowAdapter();
+
+  Future<ApiFireReportRepository> repository() async {
+    final dio = Dio()..httpClientAdapter = adapter;
+    final api = ApiClient(
+      baseUrl: 'https://api.example.com',
+      tokenStorage: storage,
+      dio: dio,
+    );
+    await api.setSession(accessToken: 'access', refreshToken: 'refresh');
+    return ApiFireReportRepository(api);
+  }
+}
+
+class WorkflowAdapter implements HttpClientAdapter {
+  final List<RequestOptions> requests = [];
+  FireReportStatus status = FireReportStatus.pending;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    if (options.path == '/volunteers/me/fire-reports') {
+      return jsonResponse(200, {
+        'items': [workflowReportJson(status)],
+        'page': 1,
+        'limit': 100,
+        'total': 1,
+      });
+    }
+    if (options.path == '/volunteers/me/fire-reports/91/claim') {
+      status = FireReportStatus.assigned;
+      return jsonResponse(200, workflowReportJson(status, assignedUserId: 13));
+    }
+    if (options.path == '/volunteers/me/fire-reports/91/resolve') {
+      status = FireReportStatus.resolved;
+      return jsonResponse(200, workflowReportJson(status, assignedUserId: 13));
+    }
+    return jsonResponse(404, {'detail': 'not found'});
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class MutableWorkflowRepository implements FireReportRepository {
+  MutableWorkflowRepository({
+    FireReport? initialReport,
+    this.conflictOnClaim = false,
+  }) : report = initialReport ?? workflowReport(FireReportStatus.pending);
+
+  FireReport report;
+  final bool conflictOnClaim;
+  int claims = 0;
+  int resolutions = 0;
+  int detailLoads = 0;
+  int routeLoads = 0;
+
+  @override
+  Future<FireReport> claimReport(int reportId) async {
+    claims++;
+    if (conflictOnClaim) {
+      report = workflowReport(FireReportStatus.assigned, assignedUserId: 27);
+      final request = RequestOptions(path: '/claim');
+      throw DioException(
+        requestOptions: request,
+        response: Response<void>(requestOptions: request, statusCode: 409),
+      );
+    }
+    report = workflowReport(FireReportStatus.assigned, assignedUserId: 13);
+    return report;
+  }
+
+  @override
+  Future<FireReport> resolveReport(int reportId) async {
+    resolutions++;
+    report = workflowReport(FireReportStatus.resolved, assignedUserId: 13);
+    return report;
+  }
+
+  @override
+  Future<FireReport> getVolunteerReport(int reportId) async {
+    detailLoads++;
+    return report;
+  }
+
+  @override
+  Future<List<FireReport>> getVolunteerReports() async => [report];
+
+  @override
+  Future<FireReportRoute> getVolunteerRoute(
+    int reportId,
+    LocationFix origin,
+  ) async {
+    routeLoads++;
+    return const FireReportRoute(
+      geometry: [
+        RoutePoint(latitude: 31.77, longitude: 35.23),
+        RoutePoint(latitude: 31.79, longitude: 35.25),
+      ],
+      distanceKm: 2,
+      durationSeconds: 240,
+    );
+  }
+
+  @override
+  Future<Uint8List> getImage(int reportId, int imageId) async => Uint8List(0);
+
+  @override
+  Future<FireReport> getMyReport(int reportId) async => report;
+
+  @override
+  Future<List<FireReport>> getMyReports() async => [report];
+
+  @override
+  Future<void> submit({
+    Uint8List? photo,
+    String? pin,
+    required LocationFix location,
+  }) async {}
+}
+
+class MunicipalityWorkflowFixture {
+  final storage = WorkflowTokenStorage();
+  late final adapter = MunicipalityWorkflowAdapter(this);
+  bool fail = false;
+
+  Future<MunicipalityOperationsRepository> repository() async {
+    final dio = Dio()..httpClientAdapter = adapter;
+    final api = ApiClient(
+      baseUrl: 'https://api.example.com',
+      tokenStorage: storage,
+      dio: dio,
+    );
+    await api.setSession(
+      accessToken: 'municipality-access',
+      refreshToken: 'municipality-refresh',
+    );
+    return MunicipalityOperationsRepository(api: api);
+  }
+}
+
+class MunicipalityWorkflowAdapter implements HttpClientAdapter {
+  MunicipalityWorkflowAdapter(this.fixture);
+  final MunicipalityWorkflowFixture fixture;
+  final List<RequestOptions> requests = [];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    if (fixture.fail) return jsonResponse(503, {'detail': 'offline'});
+    if (options.path == '/municipalities/auth/fire-reports') {
+      return jsonResponse(200, {
+        'items': [municipalityReportJson],
+        'page': 1,
+        'limit': 100,
+        'total': 1,
+      });
+    }
+    if (options.path == '/municipalities/auth/volunteer-applications' ||
+        options.path == '/municipalities/auth/volunteers') {
+      return jsonResponse(200, {
+        'items': <Object>[],
+        'page': 1,
+        'limit': 100,
+        'total': 0,
+      });
+    }
+    return jsonResponse(404, {'detail': 'not found'});
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class WorkflowTokenStorage extends TokenStorage {
+  String? token;
+
+  @override
+  Future<void> saveRefreshToken(String value) async => token = value;
+
+  @override
+  Future<String?> readRefreshToken() async => token;
+
+  @override
+  Future<void> deleteRefreshToken() async => token = null;
+}
+
+class WorkflowLocation implements LocationService {
+  const WorkflowLocation();
+
+  @override
+  Future<LocationFix> requestCurrentPosition() async =>
+      const LocationFix(31.77, 35.23, 5);
+
+  @override
+  Future<bool> openSettings({bool locationService = false}) async => true;
+}
+
+FireReport workflowReport(FireReportStatus status, {int? assignedUserId}) =>
+    FireReport(
+      id: 91,
+      latitude: 31.79,
+      longitude: 35.25,
+      status: status,
+      reportedAt: DateTime.parse('2026-09-20T10:00:00Z'),
+      updatedAt: DateTime.parse('2026-09-20T10:05:00Z'),
+      municipality: const FireReportMunicipality(id: 734, name: 'Municipality'),
+      images: const [],
+      assignedVolunteer: assignedUserId == null
+          ? null
+          : AssignedVolunteer(
+              id: assignedUserId == 13 ? 7 : 8,
+              userId: assignedUserId,
+              fullName: assignedUserId == 13
+                  ? 'Assigned Volunteer'
+                  : 'Winning Volunteer',
+              phone: '0590000000',
+            ),
+    );
+
+Map<String, Object?> workflowReportJson(
+  FireReportStatus status, {
+  int? assignedUserId,
+}) => {
+  'id': 91,
+  'latitude': '31.790000',
+  'longitude': '35.250000',
+  'status': status.name,
+  'reported_at': '2026-09-20T10:00:00Z',
+  'updated_at': '2026-09-20T10:05:00Z',
+  'municipality': {'id': 734, 'name': 'Municipality'},
+  'assigned_volunteer': assignedUserId == null
+      ? null
+      : {
+          'id': 7,
+          'user': {
+            'id': assignedUserId,
+            'full_name': 'Assigned Volunteer',
+            'phone': '0590000000',
+          },
+        },
+  'images': <Object>[],
+};
+
+final municipalityReportJson = {
+  ...workflowReportJson(FireReportStatus.assigned, assignedUserId: 13),
+  'reporter': {
+    'id': 41,
+    'full_name': 'Reporter',
+    'national_id': '123456789',
+    'phone': '0591111111',
+  },
+};
+
+ResponseBody jsonResponse(int status, Object body) => ResponseBody.fromString(
+  jsonEncode(body),
+  status,
+  headers: {
+    Headers.contentTypeHeader: [Headers.jsonContentType],
+  },
+);

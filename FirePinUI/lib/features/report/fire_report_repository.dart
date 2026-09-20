@@ -22,6 +22,20 @@ class FireReportMunicipality {
   final String name;
 }
 
+class AssignedVolunteer {
+  const AssignedVolunteer({
+    required this.id,
+    required this.userId,
+    required this.fullName,
+    required this.phone,
+  });
+
+  final int id;
+  final int userId;
+  final String fullName;
+  final String phone;
+}
+
 class FireReport {
   const FireReport({
     required this.id,
@@ -32,6 +46,7 @@ class FireReport {
     required this.updatedAt,
     required this.municipality,
     required this.images,
+    this.assignedVolunteer,
   });
 
   final int id;
@@ -42,6 +57,7 @@ class FireReport {
   final DateTime updatedAt;
   final FireReportMunicipality municipality;
   final List<FireReportImage> images;
+  final AssignedVolunteer? assignedVolunteer;
 }
 
 class RoutePoint {
@@ -68,6 +84,8 @@ abstract interface class FireReportRepository implements FireReportService {
   Future<FireReport> getMyReport(int reportId);
   Future<List<FireReport>> getVolunteerReports();
   Future<FireReport> getVolunteerReport(int reportId);
+  Future<FireReport> claimReport(int reportId);
+  Future<FireReport> resolveReport(int reportId);
   Future<FireReportRoute> getVolunteerRoute(int reportId, LocationFix origin);
   Future<Uint8List> getImage(int reportId, int imageId);
 }
@@ -112,6 +130,14 @@ class ApiFireReportRepository implements FireReportRepository {
   @override
   Future<FireReport> getVolunteerReport(int reportId) =>
       _loadOne('/volunteers/me/fire-reports/$reportId');
+
+  @override
+  Future<FireReport> claimReport(int reportId) =>
+      _postReport('/volunteers/me/fire-reports/$reportId/claim');
+
+  @override
+  Future<FireReport> resolveReport(int reportId) =>
+      _postReport('/volunteers/me/fire-reports/$reportId/resolve');
 
   @override
   Future<FireReportRoute> getVolunteerRoute(
@@ -173,12 +199,21 @@ class ApiFireReportRepository implements FireReportRepository {
     return _report(response.data);
   }
 
+  Future<FireReport> _postReport(String path) async {
+    final response = await _api.post<Map<String, dynamic>>(
+      path,
+      requiresAuth: true,
+    );
+    return _report(response.data);
+  }
+
   static FireReport _report(Object? value) {
     if (value is! Map<String, dynamic>) {
       throw const FormatException('Invalid fire report response');
     }
     final municipality = value['municipality'];
     final images = value['images'];
+    final assigned = value['assigned_volunteer'];
     if (municipality is! Map<String, dynamic> || images is! List) {
       throw const FormatException('Invalid fire report response');
     }
@@ -209,6 +244,23 @@ class ApiFireReportRepository implements FireReportRepository {
           );
         }),
       ),
+      assignedVolunteer: assigned == null ? null : _assignedVolunteer(assigned),
+    );
+  }
+
+  static AssignedVolunteer _assignedVolunteer(Object? value) {
+    if (value is! Map<String, dynamic>) {
+      throw const FormatException('Invalid assigned volunteer');
+    }
+    final user = value['user'];
+    if (user is! Map<String, dynamic>) {
+      throw const FormatException('Invalid assigned volunteer user');
+    }
+    return AssignedVolunteer(
+      id: _int(value['id']),
+      userId: _int(user['id']),
+      fullName: user['full_name'] as String,
+      phone: user['phone'] as String,
     );
   }
 

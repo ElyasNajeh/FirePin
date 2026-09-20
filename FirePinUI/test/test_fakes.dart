@@ -198,7 +198,7 @@ class FakeMunicipalityOperationsRepository extends ChangeNotifier
         longitude: incident.fireLocation.longitude,
         municipalityName: 'Test municipality',
         events: List.unmodifiable(incident.events),
-        responders: List.unmodifiable(incident.responders),
+        assignedVolunteer: incident.responders.firstOrNull,
         photo: incident.photo,
       ),
     MunicipalityIncidentRecord(

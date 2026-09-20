@@ -9,7 +9,6 @@ import 'package:firepin_ui/features/account/account_screen.dart';
 import 'package:firepin_ui/features/auth/auth_controller.dart';
 import 'package:firepin_ui/features/auth/auth_models.dart';
 import 'package:firepin_ui/features/auth/auth_repositories.dart';
-import 'package:firepin_ui/features/incidents/incident_controller.dart';
 import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_services.dart';
@@ -160,11 +159,7 @@ void main() {
         accessToken: 'municipality-access',
         refreshToken: 'municipality-refresh',
       );
-      final incidents = IncidentController();
-      final repository = MunicipalityOperationsRepository(
-        incidents: incidents,
-        api: api,
-      );
+      final repository = MunicipalityOperationsRepository(api: api);
 
       await repository.loadVolunteerData();
 
@@ -186,7 +181,6 @@ void main() {
       );
 
       repository.dispose();
-      incidents.dispose();
     },
   );
 
@@ -199,11 +193,7 @@ void main() {
         accessToken: 'municipality-access',
         refreshToken: 'municipality-refresh',
       );
-      final incidents = IncidentController();
-      final repository = MunicipalityOperationsRepository(
-        incidents: incidents,
-        api: api,
-      );
+      final repository = MunicipalityOperationsRepository(api: api);
       await repository.loadVolunteerData();
 
       await repository.acceptApplication(71);
@@ -232,7 +222,6 @@ void main() {
       );
 
       repository.dispose();
-      incidents.dispose();
     },
   );
 
@@ -245,11 +234,7 @@ void main() {
         accessToken: 'municipality-access',
         refreshToken: 'municipality-refresh',
       );
-      final incidents = IncidentController();
-      final repository = MunicipalityOperationsRepository(
-        incidents: incidents,
-        api: api,
-      );
+      final repository = MunicipalityOperationsRepository(api: api);
 
       await expectLater(repository.loadVolunteerData(), throwsFormatException);
       expect(repository.applications, isEmpty);
@@ -257,7 +242,6 @@ void main() {
       expect(repository.volunteerDataError, isA<FormatException>());
 
       repository.dispose();
-      incidents.dispose();
     },
   );
 
@@ -316,7 +300,6 @@ void main() {
     tester,
   ) async {
     var started = false;
-    final incidents = IncidentController();
     final session = OnboardingSession()
       ..applicationStatus = ApplicationStatus.rejected;
     await tester.pumpWidget(
@@ -325,7 +308,6 @@ void main() {
           body: SingleChildScrollView(
             child: AccountScreen(
               session: session,
-              incidentController: incidents,
               onChangePin: () {},
               onLogout: () {},
               onApplyVolunteer: () => started = true,
@@ -344,7 +326,6 @@ void main() {
     applyButton.onPressed!();
 
     expect(started, isTrue);
-    incidents.dispose();
   });
 }
 

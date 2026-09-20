@@ -112,7 +112,7 @@ class MunicipalityIncidentRecord {
     required this.longitude,
     required this.municipalityName,
     required this.events,
-    this.responders = const [],
+    this.assignedVolunteer,
     this.photo,
   });
   final String id;
@@ -126,10 +126,9 @@ class MunicipalityIncidentRecord {
   final double longitude;
   final String municipalityName;
   final List<IncidentEvent> events;
-  final List<VolunteerResponse> responders;
+  final VolunteerResponse? assignedVolunteer;
   final Uint8List? photo;
   bool get isResolved => stage == IncidentStage.resolved;
-  int get responderCount => responders.length;
 }
 
 abstract interface class MunicipalityRepository implements Listenable {
@@ -146,10 +145,7 @@ abstract interface class MunicipalityRepository implements Listenable {
 
 class MunicipalityOperationsRepository extends ChangeNotifier
     implements MunicipalityRepository {
-  MunicipalityOperationsRepository({
-    required IncidentController incidents,
-    required ApiClient api,
-  }) : _api = api;
+  MunicipalityOperationsRepository({required ApiClient api}) : _api = api;
   final ApiClient _api;
   List<VolunteerApplicationRecord> _applications = const [];
   List<VolunteerRecord> _volunteers = const [];
@@ -281,25 +277,23 @@ class MunicipalityOperationsRepository extends ChangeNotifier
     final updatedAt = DateTime.parse(json['updated_at'] as String);
     final stage = switch (json['status']) {
       'pending' => IncidentStage.waitingForResponder,
-      'assigned' => IncidentStage.responderEnRoute,
+      'assigned' => IncidentStage.responderAccepted,
       'resolved' => IncidentStage.resolved,
       _ => throw const FormatException('Invalid fire report status'),
     };
-    final responders = <VolunteerResponse>[];
+    VolunteerResponse? assignedVolunteer;
     final assigned = json['assigned_volunteer'];
     if (assigned is Map<String, dynamic>) {
       final user = assigned['user'];
       if (user is! Map<String, dynamic>) {
         throw const FormatException('Invalid assigned volunteer');
       }
-      responders.add(
-        VolunteerResponse(
-          volunteerId: _int(assigned['id']).toString(),
-          state: VolunteerResponseState.responding,
-          updatedAt: updatedAt,
-          displayName: user['full_name'] as String,
-          phone: user['phone'] as String,
-        ),
+      assignedVolunteer = VolunteerResponse(
+        volunteerId: _int(assigned['id']).toString(),
+        state: VolunteerResponseState.responding,
+        updatedAt: updatedAt,
+        displayName: user['full_name'] as String,
+        phone: user['phone'] as String,
       );
     }
     return MunicipalityIncidentRecord(
@@ -313,11 +307,11 @@ class MunicipalityOperationsRepository extends ChangeNotifier
       latitude: _double(json['latitude']),
       longitude: _double(json['longitude']),
       municipalityName: municipality['name'] as String,
-      responders: List.unmodifiable(responders),
+      assignedVolunteer: assignedVolunteer,
       events: [
         IncidentEvent(stage: IncidentStage.reported, at: reportedAt),
         if (stage != IncidentStage.waitingForResponder)
-          IncidentEvent(stage: IncidentStage.responderEnRoute, at: updatedAt),
+          IncidentEvent(stage: IncidentStage.responderAccepted, at: updatedAt),
         if (stage == IncidentStage.resolved)
           IncidentEvent(stage: IncidentStage.resolved, at: updatedAt),
       ],

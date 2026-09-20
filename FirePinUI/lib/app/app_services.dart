@@ -74,7 +74,6 @@ class AppServices {
     this.operations =
         operations ??
         MunicipalityOperationsRepository(
-          incidents: this.incidents,
           api: municipalityApi,
         );
     final userAuth = auth ?? ApiAuthRepository(api: userApi, storage: storage);

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -16,11 +17,13 @@ class FireReportsScreen extends StatefulWidget {
     required this.role,
     required this.repository,
     required this.location,
+    this.viewerUserId,
   });
 
   final UsageRole role;
   final FireReportRepository repository;
   final LocationService location;
+  final String? viewerUserId;
 
   @override
   State<FireReportsScreen> createState() => _FireReportsScreenState();
@@ -69,9 +72,11 @@ class _FireReportsScreenState extends State<FireReportsScreen> {
             volunteer: _volunteer,
             repository: widget.repository,
             location: widget.location,
+            viewerUserId: widget.viewerUserId,
           ),
         ),
       );
+      if (_volunteer) await _load();
     } catch (_) {
       if (mounted) showFeedback(context, 'تعذّر تحميل تفاصيل البلاغ.');
     }
@@ -131,12 +136,14 @@ class FireReportDetailScreen extends StatefulWidget {
     required this.volunteer,
     required this.repository,
     required this.location,
+    this.viewerUserId,
   });
 
   final FireReport report;
   final bool volunteer;
   final FireReportRepository repository;
   final LocationService location;
+  final String? viewerUserId;
 
   @override
   State<FireReportDetailScreen> createState() => _FireReportDetailScreenState();
@@ -144,14 +151,100 @@ class FireReportDetailScreen extends StatefulWidget {
 
 class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
   bool _routing = false;
+  bool _acting = false;
   Object? _routeError;
+  Object? _actionError;
   LocationFix? _origin;
   FireReportRoute? _route;
+  late FireReport _report;
+
+  bool get _assignedToMe =>
+      _report.assignedVolunteer?.userId.toString() == widget.viewerUserId;
 
   @override
   void initState() {
     super.initState();
-    if (widget.volunteer) _loadRoute();
+    _report = widget.report;
+    if (widget.volunteer &&
+        _report.status == FireReportStatus.assigned &&
+        _assignedToMe) {
+      _loadRoute();
+    }
+  }
+
+  Future<void> _reloadReport() async {
+    final report = await widget.repository.getVolunteerReport(_report.id);
+    if (!mounted) return;
+    setState(() {
+      _report = report;
+      _route = null;
+      _routeError = null;
+      _origin = null;
+    });
+  }
+
+  Future<void> _claim() async {
+    if (_acting) return;
+    setState(() {
+      _acting = true;
+      _actionError = null;
+    });
+    try {
+      await widget.repository.claimReport(_report.id);
+      await _reloadReport();
+      if (_assignedToMe) await _loadRoute();
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 409) {
+        try {
+          await _reloadReport();
+        } on Object catch (reloadError) {
+          if (mounted) setState(() => _actionError = reloadError);
+        }
+        if (mounted) {
+          showFeedback(
+            context,
+            'سبقك متطوع آخر إلى استلام هذا البلاغ. تم تحديث الحالة.',
+          );
+        }
+      } else if (mounted) {
+        setState(() => _actionError = error);
+      }
+    } on Object catch (error) {
+      if (mounted) setState(() => _actionError = error);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  Future<void> _resolve() async {
+    if (_acting) return;
+    setState(() {
+      _acting = true;
+      _actionError = null;
+    });
+    try {
+      await widget.repository.resolveReport(_report.id);
+      await _reloadReport();
+    } on Object catch (error) {
+      if (mounted) setState(() => _actionError = error);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
+  }
+
+  Future<void> _retryReload() async {
+    if (_acting) return;
+    setState(() {
+      _acting = true;
+      _actionError = null;
+    });
+    try {
+      await _reloadReport();
+    } on Object catch (error) {
+      if (mounted) setState(() => _actionError = error);
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
   }
 
   Future<void> _loadRoute() async {
@@ -164,7 +257,7 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
     try {
       final origin = await widget.location.requestCurrentPosition();
       final route = await widget.repository.getVolunteerRoute(
-        widget.report.id,
+        _report.id,
         origin,
       );
       if (mounted) {
@@ -182,11 +275,11 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('بلاغ #${widget.report.id}')),
+    appBar: AppBar(title: Text('بلاغ #${_report.id}')),
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        FireReportMap(report: widget.report, origin: _origin, route: _route),
+        FireReportMap(report: _report, origin: _origin, route: _route),
         const SizedBox(height: 12),
         if (_routing)
           const Center(child: CircularProgressIndicator())
@@ -221,20 +314,71 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(_status(widget.report.status), style: AppType.section),
-              Text(widget.report.municipality.name, style: AppType.body),
-              Text(_dateTime(widget.report.reportedAt), style: AppType.caption),
+              Text(_status(_report.status), style: AppType.section),
+              Text(_report.municipality.name, style: AppType.body),
+              Text(_dateTime(_report.reportedAt), style: AppType.caption),
               Text(
-                '${widget.report.latitude}, ${widget.report.longitude}',
+                '${_report.latitude}, ${_report.longitude}',
                 textDirection: TextDirection.ltr,
               ),
+              if (_report.assignedVolunteer != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'المتطوع المعيّن: ${_report.assignedVolunteer!.fullName}',
+                  style: AppType.body,
+                ),
+                Text(_report.assignedVolunteer!.phone, style: AppType.caption),
+              ],
             ],
           ),
         ),
-        for (final image in widget.report.images) ...[
+        if (widget.volunteer && _report.status == FireReportStatus.pending) ...[
+          const SizedBox(height: 12),
+          AppButton(
+            'استلام البلاغ',
+            key: const ValueKey('claim-fire-report'),
+            onPressed: _acting ? null : _claim,
+          ),
+        ],
+        if (widget.volunteer &&
+            _report.status == FireReportStatus.assigned &&
+            _assignedToMe) ...[
+          const SizedBox(height: 12),
+          AppButton(
+            'تمت معالجة الحريق',
+            key: const ValueKey('resolve-fire-report'),
+            onPressed: _acting ? null : _resolve,
+          ),
+        ],
+        if (widget.volunteer &&
+            _report.status == FireReportStatus.assigned &&
+            !_assignedToMe) ...[
+          const SizedBox(height: 12),
+          const SurfaceCard(
+            child: Text('تم استلام هذا البلاغ بواسطة متطوع آخر.'),
+          ),
+        ],
+        if (_actionError != null) ...[
+          const SizedBox(height: 12),
+          SurfaceCard(
+            warning: true,
+            child: Column(
+              children: [
+                const Text('تعذّر تحديث حالة البلاغ.'),
+                const SizedBox(height: 8),
+                AppButton(
+                  'إعادة تحميل الحالة',
+                  secondary: true,
+                  onPressed: _acting ? null : _retryReload,
+                ),
+              ],
+            ),
+          ),
+        ],
+        for (final image in _report.images) ...[
           const SizedBox(height: 12),
           _ProtectedReportImage(
-            load: () => widget.repository.getImage(widget.report.id, image.id),
+            load: () => widget.repository.getImage(_report.id, image.id),
           ),
         ],
       ],

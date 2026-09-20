@@ -2,21 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../core/ui/components.dart';
 import '../../theme/app_theme.dart';
-import '../incidents/incident_controller.dart';
 import '../onboarding/onboarding_models.dart';
 
 class AccountScreen extends StatelessWidget {
   const AccountScreen({
     super.key,
     required this.session,
-    required this.incidentController,
     required this.onChangePin,
     required this.onLogout,
     this.onApplyVolunteer,
   });
 
   final OnboardingSession session;
-  final IncidentController incidentController;
   final VoidCallback onChangePin;
   final VoidCallback onLogout;
   final VoidCallback? onApplyVolunteer;
@@ -135,7 +132,7 @@ class AccountScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _volunteerStatus,
+                        'متاح لاستقبال بلاغات البلدية',
                         style: AppType.text(14, weight: FontWeight.w700),
                       ),
                       Text(
@@ -250,14 +247,6 @@ class AccountScreen extends StatelessWidget {
   String _maskedIdentity(String? value) {
     if (value == null || value.length < 2) return '*******89';
     return '${List.filled(value.length - 2, '*').join()}${value.substring(value.length - 2)}';
-  }
-
-  String get _volunteerStatus {
-    if (incidentController.incident?.hasResponded(session.participantId) ==
-        true) {
-      return 'استجابة نشطة · أنت في الطريق';
-    }
-    return 'متاح لاستقبال نداءات الحريق';
   }
 }
 

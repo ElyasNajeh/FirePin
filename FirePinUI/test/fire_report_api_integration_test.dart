@@ -109,10 +109,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: FireReportDetailScreen(
-          report: sampleReport,
+          report: assignedSampleReport,
           volunteer: true,
           repository: repository,
           location: FixedLocationService(),
+          viewerUserId: '13',
         ),
       ),
     );
@@ -134,10 +135,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: FireReportDetailScreen(
-          report: sampleReport,
+          report: assignedSampleReport,
           volunteer: true,
           repository: StaticReportRepository(failRoute: true),
           location: FixedLocationService(),
+          viewerUserId: '13',
         ),
       ),
     );
@@ -234,6 +236,12 @@ class StaticReportRepository implements FireReportRepository {
   final bool failRoute;
 
   @override
+  Future<FireReport> claimReport(int reportId) async => assignedSampleReport;
+
+  @override
+  Future<FireReport> resolveReport(int reportId) async => assignedSampleReport;
+
+  @override
   Future<FireReportRoute> getVolunteerRoute(
     int reportId,
     LocationFix origin,
@@ -257,7 +265,8 @@ class StaticReportRepository implements FireReportRepository {
   @override
   Future<List<FireReport>> getMyReports() async => [sampleReport];
   @override
-  Future<FireReport> getVolunteerReport(int reportId) async => sampleReport;
+  Future<FireReport> getVolunteerReport(int reportId) async =>
+      assignedSampleReport;
   @override
   Future<List<FireReport>> getVolunteerReports() async => [sampleReport];
   @override
@@ -285,6 +294,23 @@ final sampleReport = FireReport(
   updatedAt: DateTime.parse('2026-09-20T10:00:00Z'),
   municipality: const FireReportMunicipality(id: 734, name: 'Municipality'),
   images: const [],
+);
+
+final assignedSampleReport = FireReport(
+  id: sampleReport.id,
+  latitude: sampleReport.latitude,
+  longitude: sampleReport.longitude,
+  status: FireReportStatus.assigned,
+  reportedAt: sampleReport.reportedAt,
+  updatedAt: sampleReport.updatedAt,
+  municipality: sampleReport.municipality,
+  images: sampleReport.images,
+  assignedVolunteer: const AssignedVolunteer(
+    id: 7,
+    userId: 13,
+    fullName: 'Volunteer',
+    phone: '0590000000',
+  ),
 );
 
 final reportJson = {

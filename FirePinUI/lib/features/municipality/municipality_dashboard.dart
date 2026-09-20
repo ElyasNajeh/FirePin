@@ -383,7 +383,8 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
   Widget _volunteers() {
     final activeResponders = widget.repository.incidents
         .where((item) => !item.isResolved)
-        .expand((item) => item.responders)
+        .map((item) => item.assignedVolunteer)
+        .whereType<VolunteerResponse>()
         .toList();
     final activeIds = activeResponders
         .map((response) => response.volunteerId)
@@ -644,7 +645,7 @@ class _ActiveSummary extends StatelessWidget {
               ),
               title: Text(incident.id),
               subtitle: Text(
-                '${_stage(incident.stage)} · ${_responderSummary(incident.responderCount)}\n${incident.locationLabel}',
+                '${_stage(incident.stage)} · ${_assignmentSummary(incident.assignedVolunteer)}\n${incident.locationLabel}',
               ),
               isThreeLine: true,
               trailing: const Icon(Icons.chevron_left),
@@ -687,17 +688,13 @@ class _IncidentCard extends StatelessWidget {
                   style: AppType.caption,
                 ),
                 Text(
-                  _responderSummary(incident.responderCount),
+                  _assignmentSummary(incident.assignedVolunteer),
                   style: AppType.caption,
                 ),
-                if (incident.responders.isNotEmpty)
+                if (incident.assignedVolunteer != null)
                   Text(
-                    incident.responders
-                        .map(
-                          (response) =>
-                              response.displayName ?? response.volunteerId,
-                        )
-                        .join('، '),
+                    incident.assignedVolunteer!.displayName ??
+                        incident.assignedVolunteer!.volunteerId,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.caption,
@@ -754,23 +751,19 @@ class _IncidentDetails extends StatelessWidget {
                 _Detail('هاتف المُبلّغ', incident.reporterPhone),
                 _Detail('رقم الهوية', incident.reporterNationalId),
                 _Detail('الجهة المسؤولة', incident.municipalityName),
-                _Detail('المستجيبون', '${incident.responderCount}'),
+                _Detail(
+                  'المتطوع المعيّن',
+                  incident.assignedVolunteer?.displayName ?? 'غير معيّن',
+                ),
               ],
             ),
             const SizedBox(height: 16),
-            Text('المتطوعون المستجيبون', style: AppType.section),
+            Text('المتطوع المعيّن', style: AppType.section),
             const SizedBox(height: 8),
-            if (incident.responders.isEmpty)
-              Text('لا يوجد متطوعون في الطريق حاليًا.', style: AppType.caption)
+            if (incident.assignedVolunteer == null)
+              Text('لم يتم تعيين متطوع بعد.', style: AppType.caption)
             else
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  for (final response in incident.responders)
-                    _ResponderCard(response: response),
-                ],
-              ),
+              _ResponderCard(response: incident.assignedVolunteer!),
             if (incident.photo != null) ...[
               const SizedBox(height: 16),
               ClipRRect(
@@ -829,7 +822,7 @@ class _ResponderCard extends StatelessWidget {
         if (response.phone?.isNotEmpty == true)
           Text(response.phone!, style: AppType.caption),
         Text(
-          'في الطريق إلى الحريق',
+          'المتطوع المعيّن للبلاغ',
           style: AppType.text(11, color: AppColors.primary),
         ),
       ],
@@ -934,13 +927,13 @@ class _VolunteerDataError extends StatelessWidget {
 String _stage(IncidentStage stage) => switch (stage) {
   IncidentStage.reported => 'تم استلام البلاغ',
   IncidentStage.waitingForResponder => 'جارٍ البحث عن مستجيب',
-  IncidentStage.responderAccepted => 'تمت تلبية النداء',
-  IncidentStage.responderEnRoute => 'متطوعون في الطريق',
+  IncidentStage.responderAccepted => 'تم تعيين متطوع',
+  IncidentStage.responderEnRoute => 'تم تعيين متطوع',
   IncidentStage.resolved => 'تمت معالجة الحالة',
 };
 
-String _responderSummary(int count) =>
-    count == 0 ? 'لا يوجد متطوعون في الطريق' : '$count متطوعين في الطريق';
+String _assignmentSummary(VolunteerResponse? volunteer) =>
+    volunteer == null ? 'لم يتم تعيين متطوع' : 'تم تعيين متطوع';
 
 String _date(DateTime value) => '${value.day}/${value.month}/${value.year}';
 String _dateTime(DateTime value) =>
