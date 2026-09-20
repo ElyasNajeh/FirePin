@@ -48,6 +48,7 @@ class _FailingOcrEngine implements IdentityOcrEngine {
     required String imagePath,
     required String tessdataPath,
     required String language,
+    IdentityOcrMode mode = IdentityOcrMode.fullCard,
   }) => throw PlatformException(code: code, message: 'synthetic failure');
 }
 
@@ -55,6 +56,222 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Palestinian identity OCR parsing', () {
+    test('assembles four labeled Arabic name rows on a structured card', () {
+      final result = IdentityTextParser.parse('''
+بطاقة هوية
+رقم الهوية: 123 456 789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+اسم الأم: ليلى
+تاريخ الميلاد: 07/11/2000
+مكان الولادة: مدينة تجريبية
+الجنس: ذكر
+''');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+      expect(result.identityNumber, '123456789');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
+    test('associates values on following lines with their name labels', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي
+أحمد
+اسم الاب
+محمد
+اسم الجد
+سالم
+اسم العائلة
+خليل
+تاريخ الميلاد
+07/11/2000
+''');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
+    test('associates values preceding labels in reversed OCR rows', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية 123456789
+أحمد
+الاسم الشخصي
+محمد
+اسم الأب
+سالم
+اسم الجد
+خليل
+اسم العائلة
+تاريخ الميلاد 07/11/2000
+''');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+    });
+
+    test('accepts punctuation and narrow spacing inside one ID', () {
+      for (final id in ['123.456.789', '123 · 456 · 789', '1 23456789']) {
+        final result = IdentityTextParser.parse('''
+رقم الهوية: $id
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+تاريخ الميلاد: 07/11/2000
+''');
+        expect(result.identityNumber, '123456789');
+      }
+    });
+
+    test('selects labeled birth date over another printed date', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+تاريخ الميلاد: 07/11/2000
+تاريخ الطباعة: 28/12/2025
+''');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
+    test(
+      'does not use a nearby printing date when birth date is unreadable',
+      () {
+        expect(
+          () => IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+تاريخ الميلاد: غير واضح
+تاريخ الطباعة: 28/12/2025
+'''),
+          throwsA(
+            isA<IdentityScanFailure>().having(
+              (failure) => failure.technicalCode,
+              'technicalCode',
+              'birth_date_missing_or_invalid',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('does not treat a sole labeled printing date as birth date', () {
+      expect(
+        () => IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+تاريخ الطباعة: 28/12/2025
+'''),
+        throwsA(
+          isA<IdentityScanFailure>().having(
+            (failure) => failure.technicalCode,
+            'technicalCode',
+            'birth_date_missing_or_invalid',
+          ),
+        ),
+      );
+    });
+
+    test('ignores Hebrew and unrelated Arabic text around split fields', () {
+      final result = IdentityTextParser.parse('''
+بطاقة هوية זהות
+رقم الهوية: 123-456-789 מספר
+الاسم الشخصي: أحمد עברית
+اسم الأب: محمد אב
+اسم الجد: سالم סבא
+اسم العائلة: خليل משפחה
+תאריך تاريخ الميلاد: 07/11/2000
+مكان الولادة: مدينة تجريبية
+''');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+    });
+
+    test('accepts three independently labeled name parts', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم العائلة: خليل
+تاريخ الميلاد: 07/11/2000
+''');
+      expect(result.fullName, 'أحمد محمد خليل');
+    });
+
+    test('fails when only two split name fields can be read', () {
+      expect(
+        () => IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+مكان الولادة: مدينة تجريبية
+تاريخ الميلاد: 07/11/2000
+'''),
+        throwsA(
+          isA<IdentityScanFailure>().having(
+            (failure) => failure.technicalCode,
+            'technicalCode',
+            'arabic_name_missing',
+          ),
+        ),
+      );
+    });
+
+    test('does not turn unreadable name text into a component', () {
+      expect(
+        () => IdentityTextParser.parse('''
+رقم الهوية: 123456789
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: غير واضح
+تاريخ الميلاد: 07/11/2000
+'''),
+        throwsA(
+          isA<IdentityScanFailure>().having(
+            (failure) => failure.technicalCode,
+            'technicalCode',
+            'arabic_name_missing',
+          ),
+        ),
+      );
+    });
+
+    test('recovers split ID only inside its targeted region', () {
+      final result = IdentityTextParser.parse('''
+رقم الهوية غير واضح
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+اسم الجد: سالم
+اسم العائلة: خليل
+تاريخ الميلاد: 07/11/2000
+''', nationalIdText: 'رقم الهوية\n123 456\n789');
+      expect(result.identityNumber, '123456789');
+    });
+
+    test('recovers missing fields from matching card regions', () {
+      final result = IdentityTextParser.parse(
+        '''
+بطاقة هوية
+رقم الهوية غير واضح
+الاسم الشخصي: أحمد
+اسم الأب: محمد
+تاريخ الميلاد غير واضح
+''',
+        nationalIdText: '123.456.789',
+        nameText: 'اسم الجد: سالم\nاسم العائلة: خليل',
+        birthDateText: '07/11/2000',
+      );
+      expect(result.identityNumber, '123456789');
+      expect(result.fullName, 'أحمد محمد سالم خليل');
+      expect(result.birthDate, '07 / 11 / 2000');
+    });
+
     test('accepts valid Palestinian identity OCR text', () {
       final result = IdentityTextParser.parse('''
 دولة فلسطين

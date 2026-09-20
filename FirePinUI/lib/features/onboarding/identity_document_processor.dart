@@ -47,8 +47,11 @@ abstract interface class IdentityOcrEngine {
     required String imagePath,
     required String tessdataPath,
     required String language,
+    IdentityOcrMode mode = IdentityOcrMode.fullCard,
   });
 }
+
+enum IdentityOcrMode { fullCard, arabicNames, nationalId, birthDate }
 
 /// Uses FirePin's checked Android channel. Other platforms retain the package
 /// implementation so this Android reliability fix does not regress iOS.
@@ -62,12 +65,14 @@ class PlatformIdentityOcrEngine implements IdentityOcrEngine {
     required String imagePath,
     required String tessdataPath,
     required String language,
+    IdentityOcrMode mode = IdentityOcrMode.fullCard,
   }) async {
     if (Platform.isAndroid) {
       final result = await _androidChannel.invokeMethod<String>('recognize', {
         'imagePath': imagePath,
         'tessdataPath': tessdataPath,
         'language': language,
+        'mode': mode.name,
       });
       if (result == null) {
         throw PlatformException(
@@ -251,24 +256,82 @@ class TesseractIdentityDocumentProcessor implements IdentityDocumentProcessor {
       );
     }
 
-    final file = File(
-      '${Directory.systemTemp.path}${Platform.pathSeparator}'
-      'firepin-id-${DateTime.now().microsecondsSinceEpoch}.jpg',
-    );
+    final files = <File>[];
     try {
-      await file.writeAsBytes(processed.bytes, flush: true);
-      _identityOcrLog('recognize', 'status=starting language=ara+eng');
-      final text = await ocrEngine
-          .recognize(
-            imagePath: file.path,
-            tessdataPath: tessdataPath,
-            language: 'ara+eng',
-          )
-          .timeout(const Duration(seconds: 60));
+      Future<String> recognize(
+        List<int> bytes,
+        String language,
+        IdentityOcrMode mode,
+      ) async {
+        final file = File(
+          '${Directory.systemTemp.path}${Platform.pathSeparator}'
+          'firepin-id-${DateTime.now().microsecondsSinceEpoch}-${mode.name}.jpg',
+        );
+        files.add(file);
+        await file.writeAsBytes(bytes, flush: true);
+        _identityOcrLog(
+          'recognize',
+          'status=starting pass=${mode.name} language=$language',
+        );
+        final text = await ocrEngine
+            .recognize(
+              imagePath: file.path,
+              tessdataPath: tessdataPath,
+              language: language,
+              mode: mode,
+            )
+            .timeout(const Duration(seconds: 60));
+        _identityOcrLog(
+          'recognize',
+          'status=complete pass=${mode.name} characters=${text.length}',
+        );
+        return text;
+      }
+
+      final text = await recognize(
+        processed.bytes,
+        'ara+eng',
+        IdentityOcrMode.fullCard,
+      );
       _identityOcrLog('recognize', 'status=complete characters=${text.length}');
       try {
         final identity = IdentityTextParser.parse(text);
         _identityOcrLog('parse', 'status=complete');
+        return identity;
+      } on IdentityScanFailure catch (error) {
+        _identityOcrLog(
+          'parse',
+          'status=retry type=${error.type} code=${error.technicalCode}',
+        );
+        if (error.type == IdentityScanFailureType.ambiguousIdentityData) {
+          rethrow;
+        }
+      }
+
+      final regions = await IdentityCardRegions.extract(processed.bytes);
+      final idText = await recognize(
+        regions.nationalId,
+        'eng',
+        IdentityOcrMode.nationalId,
+      );
+      final nameText = await recognize(
+        regions.arabicNames,
+        'ara',
+        IdentityOcrMode.arabicNames,
+      );
+      final dateText = await recognize(
+        regions.birthDate,
+        'eng',
+        IdentityOcrMode.birthDate,
+      );
+      try {
+        final identity = IdentityTextParser.parse(
+          text,
+          nationalIdText: idText,
+          nameText: nameText,
+          birthDateText: dateText,
+        );
+        _identityOcrLog('parse', 'status=complete pass=regions');
         return identity;
       } on IdentityScanFailure catch (error) {
         _identityOcrLog(
@@ -287,15 +350,12 @@ class TesseractIdentityDocumentProcessor implements IdentityDocumentProcessor {
         technicalCode: 'timeout',
       );
     } on PlatformException catch (error) {
-      _identityOcrLog(
-        'recognize',
-        'status=failed code=${error.code} message=${error.message}',
-      );
+      _identityOcrLog('recognize', 'status=failed code=${error.code}');
       throw classifyOcrError(error);
     } on MissingPluginException catch (error) {
       _identityOcrLog(
         'recognize',
-        'status=failed code=missing_plugin message=$error',
+        'status=failed code=missing_plugin type=${error.runtimeType}',
       );
       throw const IdentityScanFailure(
         'تعذّر تشغيل قارئ الهوية على هذا الجهاز. أعد فتح التطبيق وحاول مجددًا.',
@@ -310,13 +370,15 @@ class TesseractIdentityDocumentProcessor implements IdentityDocumentProcessor {
         technicalCode: error.runtimeType.toString(),
       );
     } finally {
-      try {
-        if (await file.exists()) await file.delete();
-      } on Object catch (error) {
-        _identityOcrLog(
-          'image_cleanup',
-          'status=failed type=${error.runtimeType}',
-        );
+      for (final file in files) {
+        try {
+          if (await file.exists()) await file.delete();
+        } on Object catch (error) {
+          _identityOcrLog(
+            'image_cleanup',
+            'status=failed type=${error.runtimeType}',
+          );
+        }
       }
     }
   }
@@ -353,76 +415,140 @@ void _identityOcrLog(String stage, String details) {
 class IdentityTextParser {
   const IdentityTextParser._();
 
-  static IdentityData parse(String rawText) {
-    final normalized = normalizeDigits(
-      rawText,
-    ).replaceAll('\r', '\n').replaceAll(RegExp(r'\n+'), '\n').trim();
-    if (normalized.length < 12) {
+  static final _idLabel = RegExp(
+    r'رقم\s*(?:ال)?هوية|national\s*id',
+    caseSensitive: false,
+  );
+  static final _birthLabel = RegExp(
+    r'تاريخ\s*(?:الميلاد|الولادة)|ميلاد|birth|dob',
+    caseSensitive: false,
+  );
+  static final _fullNameLabel = RegExp(r'(?:الاسم|اسم)\s*(?:الكامل|الرباعي)');
+  static final _nameLabels = <RegExp>[
+    RegExp(r'(?:الاسم|اسم)\s*(?:الشخصي|الأول|الاول)'),
+    RegExp(r'اسم\s*(?:الأب|الاب)'),
+    RegExp(r'اسم\s*الجد'),
+    RegExp(r'اسم\s*العائلة'),
+  ];
+  static final _arabicWord = RegExp(r'[ء-ي]{2,}');
+  static final _datePattern = RegExp(
+    r'(?<![0-9])([0-9]{1,4})\s*[/.-]\s*([0-9]{1,2})\s*[/.-]\s*([0-9]{1,4})(?![0-9])',
+  );
+
+  static IdentityData parse(
+    String rawText, {
+    String? nationalIdText,
+    String? nameText,
+    String? birthDateText,
+  }) {
+    final lines = _lines(rawText);
+    if (lines.join().length < 12) {
       throw const IdentityScanFailure(
         'لم تظهر بيانات كافية في الصورة. أعد تصوير الوجه الأمامي للهوية.',
-        type: IdentityScanFailureType.parserFailure,
         technicalCode: 'insufficient_text',
       );
     }
-    final lines = normalized
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    final nationalId = _nationalId(lines);
-    final birthDate = _birthDate(lines);
-    final fullName = _arabicName(lines);
     return IdentityData(
-      fullName: fullName,
-      identityNumber: nationalId,
-      birthDate: birthDate,
+      identityNumber: _nationalId(lines, nationalIdText),
+      fullName: _arabicName(lines, nameText),
+      birthDate: _birthDate(lines, birthDateText),
       address: '',
     );
   }
 
-  static String _nationalId(List<String> lines) {
-    final all = _idCandidates(lines.join('\n'));
-    if (all.length == 1) return all.single;
-    if (all.length > 1) {
+  static List<String> _lines(String text) => normalizeDigits(text)
+      .replaceAll('\r', '\n')
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
+
+  static String _nationalId(List<String> lines, String? regionText) {
+    final global = _idCandidates(lines);
+    final region = regionText == null
+        ? <String>{}
+        : _idCandidates(_lines(regionText), allowTargetedSplit: true);
+    final candidates = {...global, ...region};
+    if (candidates.length > 1) {
       throw const IdentityScanFailure(
         'ظهرت عدة أرقام محتملة للهوية. أعد التصوير بحيث تظهر بطاقة واحدة فقط.',
         type: IdentityScanFailureType.ambiguousIdentityData,
         technicalCode: 'multiple_national_ids',
       );
     }
+    if (candidates.length == 1) return candidates.single;
     throw const IdentityScanFailure(
       'لم نتمكن من تحديد رقم هوية واحد من 9 أرقام. أعد التصوير بوضوح.',
-      type: IdentityScanFailureType.parserFailure,
       technicalCode: 'national_id_missing',
     );
   }
 
-  static Set<String> _idCandidates(String text) {
-    final matches = RegExp(
-      r'(?<![0-9])(?:[0-9][\s-]*){9}(?![0-9])',
-    ).allMatches(text);
-    return {
-      for (final match in matches)
-        match.group(0)!.replaceAll(RegExp(r'[^0-9]'), ''),
-    };
+  static Set<String> _idCandidates(
+    List<String> lines, {
+    bool allowTargetedSplit = false,
+  }) {
+    final candidates = <String>{};
+    // Scan each line independently. The separator set deliberately excludes
+    // slashes and newlines, so dates and unrelated rows cannot be joined.
+    final numericRun = RegExp(
+      r'(?<![0-9])(?:[0-9]+(?:[ \t.·-]+[0-9]+)*)(?![0-9])',
+    );
+    for (final line in lines) {
+      for (final match in numericRun.allMatches(line)) {
+        final value = match.group(0)!;
+        final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+        if (digits.length == 9) candidates.add(digits);
+      }
+    }
+    if (allowTargetedSplit && candidates.isEmpty) {
+      for (var i = 0; i + 1 < lines.length; i++) {
+        final first = lines[i].replaceAll(_idLabel, '').trim();
+        final second = lines[i + 1].trim();
+        final numericOnly = RegExp(r'^[0-9 \t.·-]+$');
+        if (numericOnly.hasMatch(first) && numericOnly.hasMatch(second)) {
+          final digits = '$first$second'.replaceAll(RegExp(r'[^0-9]'), '');
+          if (digits.length == 9) candidates.add(digits);
+        }
+      }
+    }
+    return candidates;
   }
 
-  static String _birthDate(List<String> lines) {
-    final labeledText = _labeledText(
-      lines,
-      (line) => RegExp(
-        r'(تاريخ\s*(الميلاد|الولادة)|ميلاد|birth|dob)',
-        caseSensitive: false,
-      ).hasMatch(line),
-    );
-    final labeled = _validDates(labeledText);
-    final dates = labeled.isNotEmpty ? labeled : _validDates(lines.join('\n'));
-    if (dates.isEmpty) {
+  static String _birthDate(List<String> lines, String? regionText) {
+    final labeled = <DateTime>{};
+    var sawLabel = false;
+    for (var i = 0; i < lines.length; i++) {
+      if (!_birthLabel.hasMatch(lines[i])) continue;
+      sawLabel = true;
+      final same = _validDates(lines[i]);
+      if (same.isNotEmpty) {
+        labeled.addAll(same);
+        continue;
+      }
+      // A neighboring date is accepted only on a line without another label.
+      for (final neighbor in [i + 1, i - 1]) {
+        if (neighbor < 0 || neighbor >= lines.length) continue;
+        if (_isOtherFieldLabel(lines[neighbor])) continue;
+        labeled.addAll(_validDates(lines[neighbor]));
+      }
+    }
+    final targeted = regionText == null
+        ? <DateTime>[]
+        : _validDates(regionText);
+    final dates = <DateTime>{...labeled};
+    if (targeted.length > 1) {
       throw const IdentityScanFailure(
-        'لم نتمكن من قراءة تاريخ ميلاد صحيح. أعد تصوير الهوية بوضوح.',
-        type: IdentityScanFailureType.parserFailure,
-        technicalCode: 'birth_date_missing_or_invalid',
+        'ظهرت عدة تواريخ ميلاد محتملة. أعد تصوير الهوية بوضوح.',
+        type: IdentityScanFailureType.ambiguousIdentityData,
+        technicalCode: 'multiple_birth_dates',
       );
+    }
+    if (targeted.isNotEmpty) dates.addAll(targeted);
+    final hasOtherDateLabel = lines.any(
+      (line) => line.contains('تاريخ') && !_birthLabel.hasMatch(line),
+    );
+    if (dates.isEmpty && !sawLabel && !hasOtherDateLabel) {
+      dates.addAll(_validDates(lines.join('\n')));
     }
     if (dates.length > 1) {
       throw const IdentityScanFailure(
@@ -431,120 +557,192 @@ class IdentityTextParser {
         technicalCode: 'multiple_birth_dates',
       );
     }
-    dates.sort();
-    final date = dates.first;
+    if (dates.isEmpty) {
+      throw const IdentityScanFailure(
+        'لم نتمكن من قراءة تاريخ ميلاد صحيح. أعد تصوير الهوية بوضوح.',
+        technicalCode: 'birth_date_missing_or_invalid',
+      );
+    }
+    final date = dates.single;
     return '${date.day.toString().padLeft(2, '0')} / '
         '${date.month.toString().padLeft(2, '0')} / ${date.year}';
   }
 
   static List<DateTime> _validDates(String text) {
-    final result = <DateTime>{};
-    final pattern = RegExp(
-      r'(?<![0-9])([0-9]{1,4})\s*[/.-]\s*([0-9]{1,2})\s*[/.-]\s*([0-9]{1,4})(?![0-9])',
-    );
-    for (final match in pattern.allMatches(text)) {
+    final dates = <DateTime>{};
+    final today = DateTime.now();
+    for (final match in _datePattern.allMatches(normalizeDigits(text))) {
       final first = match.group(1)!;
-      final middle = match.group(2)!;
       final last = match.group(3)!;
+      if (first.length != 4 && last.length != 4) continue;
       final yearFirst = first.length == 4;
       final year = int.parse(yearFirst ? first : last);
-      final month = int.parse(middle);
+      final month = int.parse(match.group(2)!);
       final day = int.parse(yearFirst ? last : first);
       final date = DateTime(year, month, day);
-      final today = DateTime.now();
-      final todayDate = DateTime(today.year, today.month, today.day);
       if (year >= today.year - 120 &&
           year <= today.year &&
           date.year == year &&
           date.month == month &&
           date.day == day &&
-          !date.isAfter(todayDate)) {
-        result.add(date);
+          !date.isAfter(DateTime(today.year, today.month, today.day))) {
+        dates.add(date);
       }
     }
-    return result.toList();
+    return dates.toList();
   }
 
-  static String _arabicName(List<String> lines) {
-    final label = RegExp(r'(الاسم\s*(الكامل|الرباعي)?|اسم\s*العائلة)');
-    final labeled = <String>[];
-    for (var index = 0; index < lines.length; index++) {
-      if (!label.hasMatch(lines[index])) continue;
-      labeled.add(lines[index].replaceAll(label, ' '));
-      if (index + 1 < lines.length) labeled.add(lines[index + 1]);
+  static String _arabicName(List<String> lines, String? regionText) {
+    final components = <int, String>{};
+    var sawSplitLabel = false;
+    for (final source in [lines, if (regionText != null) _lines(regionText)]) {
+      final parsed = _splitNameFields(source);
+      sawSplitLabel |= parsed.sawLabel;
+      for (final entry in parsed.values.entries) {
+        final previous = components[entry.key];
+        if (previous != null && previous != entry.value) {
+          throw const IdentityScanFailure(
+            'تعذّر تمييز الاسم العربي. أعد تصوير الهوية بوضوح.',
+            type: IdentityScanFailureType.ambiguousIdentityData,
+            technicalCode: 'conflicting_name_fields',
+          );
+        }
+        components[entry.key] = entry.value;
+      }
     }
-    final fromLabel = _bestName(labeled, minimumWords: 2);
-    if (fromLabel != null) return fromLabel;
-    // When OCR loses the label entirely, accept only a stronger three-word
-    // Arabic candidate. This keeps the fallback useful without treating an
-    // address or government header as a person's name.
-    final fromDocument = _bestName(lines, minimumWords: 3);
-    if (fromDocument != null) return fromDocument;
+    if (sawSplitLabel) {
+      if (components.length >= 3) {
+        return [
+          for (var i = 0; i < 4; i++)
+            if (components.containsKey(i)) components[i]!,
+        ].join(' ');
+      }
+      throw const IdentityScanFailure(
+        'لم نتمكن من قراءة الاسم العربي الكامل. أعد تصوير الهوية بوضوح.',
+        technicalCode: 'arabic_name_missing',
+      );
+    }
+    // Compatibility with cards that explicitly print one full-name field.
+    for (var i = 0; i < lines.length; i++) {
+      if (!_fullNameLabel.hasMatch(lines[i])) continue;
+      for (final candidate in [
+        lines[i].replaceAll(_fullNameLabel, ''),
+        if (i + 1 < lines.length) lines[i + 1],
+      ]) {
+        final words = _arabicWord
+            .allMatches(candidate)
+            .map((m) => m.group(0)!)
+            .toList();
+        if (words.length >= 3 &&
+            words.length <= 5 &&
+            !_isOtherFieldLabel(candidate)) {
+          return words.join(' ');
+        }
+      }
+    }
     throw const IdentityScanFailure(
       'لم نتمكن من قراءة الاسم العربي الكامل. أعد تصوير الهوية بوضوح.',
-      type: IdentityScanFailureType.parserFailure,
       technicalCode: 'arabic_name_missing',
     );
   }
 
-  static String? _bestName(
-    Iterable<String> lines, {
-    required int minimumWords,
-  }) {
+  static _SplitNameResult _splitNameFields(List<String> lines) {
+    final values = <int, String>{};
+    final assigned = <int>{};
+    var sawLabel = false;
+    final firstLabelIndex = lines.indexWhere(
+      (line) => _fieldIndex(line) != null,
+    );
+    final reverseRows =
+        firstLabelIndex > 0 &&
+        _singleNameValue(lines[firstLabelIndex - 1]) != null;
+    for (var i = 0; i < lines.length; i++) {
+      final field = _fieldIndex(lines[i]);
+      if (field == null) continue;
+      sawLabel = true;
+      final label = _nameLabels[field];
+      String? value = _singleNameValue(lines[i].replaceAll(label, ''));
+      if (value == null) {
+        final neighbors = reverseRows ? [i - 1, i + 1] : [i + 1, i - 1];
+        for (final neighbor in neighbors) {
+          if (neighbor < 0 ||
+              neighbor >= lines.length ||
+              assigned.contains(neighbor)) {
+            continue;
+          }
+          value = _singleNameValue(lines[neighbor]);
+          if (value != null) {
+            assigned.add(neighbor);
+            break;
+          }
+        }
+      }
+      if (value == null) continue;
+      if (values.containsKey(field) && values[field] != value) {
+        throw const IdentityScanFailure(
+          'تعذّر تمييز الاسم العربي. أعد تصوير الهوية بوضوح.',
+          type: IdentityScanFailureType.ambiguousIdentityData,
+          technicalCode: 'conflicting_name_fields',
+        );
+      }
+      values[field] = value;
+    }
+    return _SplitNameResult(values, sawLabel);
+  }
+
+  static int? _fieldIndex(String line) {
+    for (var i = 0; i < _nameLabels.length; i++) {
+      if (_nameLabels[i].hasMatch(line)) return i;
+    }
+    return null;
+  }
+
+  static String? _singleNameValue(String line) {
+    if (_fieldIndex(line) != null || _isOtherFieldLabel(line)) return null;
+    final words = _arabicWord.allMatches(line).map((m) => m.group(0)!).toList();
     const excluded = {
-      'السلطة',
-      'الوطنية',
-      'الفلسطينية',
-      'دولة',
-      'فلسطين',
-      'وزارة',
-      'الداخلية',
       'بطاقة',
       'هوية',
       'الهوية',
+      'فلسطين',
+      'الفلسطينية',
+      'السلطة',
+      'الوطنية',
+      'وزارة',
+      'الداخلية',
       'تاريخ',
+      'ميلاد',
       'الميلاد',
+      'الولادة',
       'الجنس',
       'ذكر',
       'أنثى',
       'مكان',
-      'الإقامة',
-      'انتهاء',
-      'الاسم',
-      'الكامل',
-      'الرباعي',
-      'العائلة',
       'السكن',
       'العنوان',
+      'مدينة',
+      'غير',
+      'واضح',
+      'مقروء',
     };
-    String? best;
-    var bestWords = 0;
-    for (final line in lines) {
-      final words = RegExp(
-        r'[ء-ي]{2,}',
-      ).allMatches(line).map((match) => match.group(0)!);
-      final candidateWords = words
-          .where((word) => !excluded.contains(word))
-          .toList();
-      if (candidateWords.length >= minimumWords &&
-          candidateWords.length > bestWords) {
-        best = candidateWords.join(' ');
-        bestWords = candidateWords.length;
-      }
+    if (words.isEmpty || words.length > 2 || words.any(excluded.contains)) {
+      return null;
     }
-    return best;
+    if (RegExp(r'[0-9]').hasMatch(line)) return null;
+    return words.join(' ');
   }
 
-  static String _labeledText(
-    List<String> lines,
-    bool Function(String line) isLabel,
-  ) {
-    final selected = <String>[];
-    for (var index = 0; index < lines.length; index++) {
-      if (!isLabel(lines[index])) continue;
-      selected.add(lines[index]);
-      if (index + 1 < lines.length) selected.add(lines[index + 1]);
-    }
-    return selected.join('\n');
-  }
+  static bool _isOtherFieldLabel(String line) =>
+      _idLabel.hasMatch(line) ||
+      _birthLabel.hasMatch(line) ||
+      _fullNameLabel.hasMatch(line) ||
+      RegExp(
+        r'اسم\s*(?:الأم|الام)|مكان\s*الولادة|الجنس|العنوان|تاريخ',
+      ).hasMatch(line);
+}
+
+class _SplitNameResult {
+  const _SplitNameResult(this.values, this.sawLabel);
+  final Map<int, String> values;
+  final bool sawLabel;
 }

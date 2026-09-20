@@ -113,6 +113,57 @@ class ProcessedIdentityImage {
   final bool wasCropped;
 }
 
+class IdentityCardRegionImages {
+  const IdentityCardRegionImages({
+    required this.nationalId,
+    required this.arabicNames,
+    required this.birthDate,
+  });
+
+  final Uint8List nationalId;
+  final Uint8List arabicNames;
+  final Uint8List birthDate;
+}
+
+/// Padded fractions of the already cropped card. These areas include the
+/// printed Arabic labels, while excluding the portrait and unrelated dates.
+class IdentityCardRegions {
+  const IdentityCardRegions._();
+
+  static Future<IdentityCardRegionImages> extract(Uint8List cardBytes) =>
+      Isolate.run(() {
+        final card = image.decodeImage(cardBytes);
+        if (card == null) {
+          throw const IdentityImageProcessingException('region decode failed');
+        }
+        Uint8List crop(double left, double top, double right, double bottom) {
+          final x = (left * card.width).floor();
+          final y = (top * card.height).floor();
+          var piece = image.copyCrop(
+            card,
+            x: x,
+            y: y,
+            width: (right * card.width).ceil() - x,
+            height: (bottom * card.height).ceil() - y,
+          );
+          if (piece.width < 1400) {
+            piece = image.copyResize(
+              piece,
+              width: 1400,
+              interpolation: image.Interpolation.cubic,
+            );
+          }
+          return Uint8List.fromList(image.encodeJpg(piece, quality: 94));
+        }
+
+        return IdentityCardRegionImages(
+          nationalId: crop(.34, .24, .95, .36),
+          arabicNames: crop(.67, .35, .97, .67),
+          birthDate: crop(.58, .63, .97, .73),
+        );
+      });
+}
+
 class IdentityImageProcessingException implements Exception {
   const IdentityImageProcessingException(this.reason);
   final String reason;

@@ -35,8 +35,13 @@ class MainActivity : FlutterActivity() {
         val imagePath = call.argument<String>("imagePath")
         val tessdataPath = call.argument<String>("tessdataPath")
         val language = call.argument<String>("language")
+        val mode = call.argument<String>("mode") ?: "fullCard"
         if (imagePath.isNullOrBlank() || tessdataPath.isNullOrBlank() || language.isNullOrBlank()) {
             result.error("INVALID_ARGUMENT", "imagePath, tessdataPath and language are required", null)
+            return
+        }
+        if (mode !in setOf("fullCard", "arabicNames", "nationalId", "birthDate")) {
+            result.error("INVALID_ARGUMENT", "Unknown OCR mode", null)
             return
         }
 
@@ -63,7 +68,7 @@ class MainActivity : FlutterActivity() {
 
         Log.i(
             LOG_TAG,
-            "stage=native_start imageBytes=${imageFile.length()} language=$language tessdata=present",
+            "stage=native_start imageBytes=${imageFile.length()} language=$language mode=$mode tessdata=present",
         )
         ocrExecutor.execute {
             var api: TessBaseAPI? = null
@@ -77,8 +82,20 @@ class MainActivity : FlutterActivity() {
                     return@execute
                 }
                 initialized = true
-                api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+                api.setPageSegMode(
+                    when (mode) {
+                        "nationalId", "birthDate" -> TessBaseAPI.PageSegMode.PSM_SINGLE_LINE
+                        else -> TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT
+                    },
+                )
                 api.setVariable("preserve_interword_spaces", "1")
+                if (mode == "nationalId" || mode == "birthDate") {
+                    val allowed = if (mode == "nationalId") "0123456789 .·-" else "0123456789/.- "
+                    if (!api.setVariable(TessBaseAPI.VAR_CHAR_WHITELIST, allowed)) {
+                        postError(result, "CONFIG_FAILED", "Could not configure numeric OCR")
+                        return@execute
+                    }
+                }
                 api.setImage(imageFile)
                 val recognizedText = api.utF8Text ?: ""
                 Log.i(
@@ -92,12 +109,12 @@ class MainActivity : FlutterActivity() {
                     LOG_TAG,
                     "stage=${if (initialized) "native_recognize" else "native_init"} " +
                         "status=failed code=$code type=${error.javaClass.simpleName} " +
-                        "message=${error.message}",
+                        "mode=$mode",
                 )
                 postError(
                     result,
                     code,
-                    "${error.javaClass.simpleName}: ${error.message ?: "no message"}",
+                    "${error.javaClass.simpleName} during $mode",
                 )
             } finally {
                 try {
