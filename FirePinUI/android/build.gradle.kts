@@ -18,10 +18,10 @@ subprojects {
 subprojects {
     project.evaluationDependsOn(":app")
 
-    // tesseract_ocr 0.5.0 leaves Java at 1.8 while its Kotlin compilation is
-    // inherited as JVM 17 by the current toolchain. Align only that legacy
-    // plugin so Android builds remain reproducible; FirePin bypasses its
-    // runtime channel on Android in favor of the checked app-owned channel.
+    // tesseract_ocr 0.5.0 declares the same Android plugin class in Java and
+    // Kotlin. FirePin uses its own Android OCR channel and supplies a tracked
+    // no-op registration class in :app. Exclude both upstream variants so the
+    // generated registrant always resolves exactly one class on every host.
     if (name == "tesseract_ocr") {
         plugins.withId("com.android.library") {
             extensions.configure<com.android.build.gradle.LibraryExtension> {
@@ -29,10 +29,13 @@ subprojects {
                     sourceCompatibility = JavaVersion.VERSION_17
                     targetCompatibility = JavaVersion.VERSION_17
                 }
+                // The published Android module has only this Java source.
+                // Remove its source root before AGP creates compile inputs.
+                sourceSets.getByName("main").java.setSrcDirs(emptyList<String>())
             }
-            // The published archive contains Java and Kotlin classes with the
-            // exact same fully-qualified name. Keep the functional Java
-            // implementation and exclude the unused template Kotlin class.
+            tasks.withType<JavaCompile>().configureEach {
+                exclude("**/TesseractOcrPlugin.java")
+            }
             tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>()
                 .configureEach {
                     exclude("**/TesseractOcrPlugin.kt")
