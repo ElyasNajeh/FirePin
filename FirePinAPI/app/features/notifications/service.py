@@ -10,6 +10,8 @@ from app.core.config import settings
 from app.db.session import AsyncSessionLocal
 from app.features.device_tokens.model import DeviceToken
 from app.features.fire_reports.model import FireReport
+from app.features.notifications.model import NotificationEvent
+from app.features.users.model import User
 from app.features.volunteers.model import Volunteer
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,18 @@ MAX_MULTICAST_TOKENS = 500
 FIRE_EMERGENCY_CHANNEL_ID = "fire_emergency"
 # Set to "fire_alarm" after that project-owned file is added to Android res/raw.
 FIRE_EMERGENCY_SOUND: str | None = None
+
+
+async def active_volunteer_user_ids(db, municipality_id: int) -> list[int]:
+    result = await db.execute(
+        select(Volunteer.user_id)
+        .join(User, User.id == Volunteer.user_id)
+        .where(
+            Volunteer.municipality_id == municipality_id,
+            User.is_active.is_(True),
+        )
+    )
+    return list(result.scalars().all())
 
 
 @lru_cache(maxsize=1)
@@ -130,13 +144,12 @@ async def send_notification(
 async def notify_report_created(report: FireReport) -> None:
     try:
         async with AsyncSessionLocal() as db:
+            volunteer_ids = await active_volunteer_user_ids(db, report.municipality_id)
             volunteer_tokens = list(
                 (
                     await db.execute(
-                        select(DeviceToken.token)
-                        .join(Volunteer, Volunteer.user_id == DeviceToken.user_id)
-                        .where(
-                            Volunteer.municipality_id == report.municipality_id,
+                        select(DeviceToken.token).where(
+                            DeviceToken.user_id.in_(volunteer_ids)
                         )
                     )
                 ).scalars()
@@ -150,11 +163,42 @@ async def notify_report_created(report: FireReport) -> None:
                     )
                 ).scalars()
             )
+            title = "بلاغ حريق جديد"
+            body = "تم تسجيل بلاغ حريق جديد بالقرب منك"
+            db.add_all(
+                [
+                    NotificationEvent(
+                        recipient_user_id=report.reporter_id,
+                        fire_report_id=report.id,
+                        event_type="report_created",
+                        title="تم إرسال بلاغ الحريق",
+                        body="يمكنك متابعة حالة بلاغك من التنبيهات.",
+                    ),
+                    NotificationEvent(
+                        recipient_municipality_id=report.municipality_id,
+                        fire_report_id=report.id,
+                        event_type="report_created",
+                        title=title,
+                        body=body,
+                    ),
+                    *[
+                        NotificationEvent(
+                            recipient_user_id=user_id,
+                            fire_report_id=report.id,
+                            event_type="new_report",
+                            title=title,
+                            body=body,
+                        )
+                        for user_id in volunteer_ids
+                    ],
+                ]
+            )
+            await db.commit()
 
         await send_notification(
             volunteer_tokens + municipality_tokens,
-            title="بلاغ حريق جديد",
-            body="تم تسجيل بلاغ حريق جديد بالقرب منك",
+            title=title,
+            body=body,
             data={
                 "type": "fire_report_created",
                 "report_id": str(report.id),
@@ -177,6 +221,7 @@ async def notify_report_claimed(report: FireReport) -> None:
     volunteer_user = volunteer.user
     try:
         async with AsyncSessionLocal() as db:
+            volunteer_ids = await active_volunteer_user_ids(db, report.municipality_id)
             reporter_tokens = list(
                 (
                     await db.execute(
@@ -189,14 +234,39 @@ async def notify_report_claimed(report: FireReport) -> None:
             volunteer_tokens = list(
                 (
                     await db.execute(
-                        select(DeviceToken.token)
-                        .join(Volunteer, Volunteer.user_id == DeviceToken.user_id)
-                        .where(
-                            Volunteer.municipality_id == report.municipality_id,
+                        select(DeviceToken.token).where(
+                            DeviceToken.user_id.in_(volunteer_ids)
                         )
                     )
                 ).scalars()
             )
+            title = "تمت تلبية النداء"
+            body = (
+                f"تمت تلبية النداء من قبل {volunteer_user.full_name}. "
+                f"رقم الهاتف: {volunteer_user.phone}"
+            )
+            db.add_all(
+                [
+                    NotificationEvent(
+                        recipient_user_id=user_id,
+                        fire_report_id=report.id,
+                        event_type="report_claimed",
+                        title=title,
+                        body=body,
+                    )
+                    for user_id in set([report.reporter_id, *volunteer_ids])
+                ]
+                + [
+                    NotificationEvent(
+                        recipient_municipality_id=report.municipality_id,
+                        fire_report_id=report.id,
+                        event_type="report_claimed",
+                        title=title,
+                        body=body,
+                    )
+                ]
+            )
+            await db.commit()
             municipality_tokens = list(
                 (
                     await db.execute(
@@ -215,11 +285,8 @@ async def notify_report_claimed(report: FireReport) -> None:
         }
         await send_notification(
             reporter_tokens + volunteer_tokens + municipality_tokens,
-            title="تمت تلبية النداء",
-            body=(
-                f"تمت تلبية النداء من قبل {volunteer_user.full_name}. "
-                f"رقم الهاتف: {volunteer_user.phone}"
-            ),
+            title=title,
+            body=body,
             data=data,
         )
     except Exception as error:
@@ -251,6 +318,27 @@ async def notify_report_resolved(report: FireReport) -> None:
                     )
                 ).scalars()
             )
+            title = "تم إنهاء البلاغ"
+            body = "تم إنهاء التعامل مع البلاغ"
+            db.add_all(
+                [
+                    NotificationEvent(
+                        recipient_user_id=report.reporter_id,
+                        fire_report_id=report.id,
+                        event_type="report_resolved",
+                        title=title,
+                        body=body,
+                    ),
+                    NotificationEvent(
+                        recipient_municipality_id=report.municipality_id,
+                        fire_report_id=report.id,
+                        event_type="report_resolved",
+                        title=title,
+                        body=body,
+                    ),
+                ]
+            )
+            await db.commit()
 
         data = {
             "type": "fire_report_resolved",
@@ -258,8 +346,8 @@ async def notify_report_resolved(report: FireReport) -> None:
         }
         await send_notification(
             reporter_tokens + municipality_tokens,
-            title="تم إنهاء البلاغ",
-            body="تم إنهاء التعامل مع البلاغ",
+            title=title,
+            body=body,
             data=data,
         )
     except Exception as error:

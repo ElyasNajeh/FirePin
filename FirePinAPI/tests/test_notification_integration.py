@@ -9,9 +9,12 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from firebase_admin import messaging
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select
 
+from app.core.security import access_token_lifetime
 from app.db.session import AsyncSessionLocal, engine
+from app.features.auth.service import create_user_token
 from app.features.auth.model import UserSession  # noqa: F401
 from app.features.device_tokens import service as device_token_service
 from app.features.device_tokens.model import DeviceToken
@@ -19,9 +22,12 @@ from app.features.device_tokens.schema import DevicePlatform, DeviceTokenCreate
 from app.features.fire_reports import service as fire_report_service
 from app.features.fire_reports.model import FireReport, FireReportStatus
 from app.features.municipalities.model import Municipality
+from app.features.municipalities.service import create_municipality_token
+from app.features.notifications.model import NotificationEvent
 from app.features.notifications import service as notification_service
 from app.features.users.model import User
 from app.features.volunteers.model import Volunteer
+from app.main import app
 
 
 @unittest.skipUnless(
@@ -214,6 +220,137 @@ class NotificationIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 resolved.kwargs["data"]["type"],
                 "fire_report_resolved",
+            )
+
+    async def test_persisted_history_is_recipient_scoped_and_token_independent(self) -> None:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeviceToken).where(DeviceToken.user_id == self.user_ids[2])
+            )
+            await db.commit()
+
+        report = SimpleNamespace(
+            id=self.report_id,
+            reporter_id=self.user_ids[0],
+            municipality_id=self.municipality_id,
+            assigned_volunteer=SimpleNamespace(
+                id=self.volunteer_ids[0],
+                user=SimpleNamespace(full_name="Safe Volunteer", phone="0590000000"),
+            ),
+        )
+        with patch.object(
+            notification_service, "send_notification", new_callable=AsyncMock
+        ):
+            await notification_service.notify_report_created(report)
+            await notification_service.notify_report_claimed(report)
+            await notification_service.notify_report_resolved(report)
+
+        async with AsyncSessionLocal() as db:
+            events = list(
+                (await db.execute(
+                    select(NotificationEvent).where(
+                        NotificationEvent.fire_report_id == self.report_id
+                    )
+                )).scalars()
+            )
+        by_user = {
+            user_id: {item.event_type for item in events if item.recipient_user_id == user_id}
+            for user_id in self.user_ids
+        }
+        self.assertEqual(
+            by_user[self.user_ids[0]],
+            {"report_created", "report_claimed", "report_resolved"},
+        )
+        self.assertEqual(
+            by_user[self.user_ids[1]], {"new_report", "report_claimed"}
+        )
+        self.assertEqual(
+            by_user[self.user_ids[2]], {"new_report", "report_claimed"}
+        )
+        self.assertEqual(by_user[self.user_ids[3]], set())
+        self.assertEqual(
+            {item.event_type for item in events if item.recipient_municipality_id == self.municipality_id},
+            {"report_created", "report_claimed", "report_resolved"},
+        )
+        self.assertFalse(
+            any(item.recipient_municipality_id == self.other_municipality_id for item in events)
+        )
+
+        user_token = create_user_token(
+            self.user_ids[2], "access", access_token_lifetime()
+        )
+        municipality_token = create_municipality_token(
+            self.municipality_id, "access", access_token_lifetime()
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            user_history = await client.get(
+                "/notifications/me",
+                headers={"Authorization": f"Bearer {user_token}"},
+            )
+            self.assertEqual(user_history.status_code, 200)
+            self.assertEqual(
+                {item["event_type"] for item in user_history.json()},
+                {"new_report", "report_claimed"},
+            )
+            self.assertTrue(all(item["fire_report_id"] == self.report_id for item in user_history.json()))
+            municipality_history = await client.get(
+                "/municipalities/auth/notifications",
+                headers={"Authorization": f"Bearer {municipality_token}"},
+            )
+            self.assertEqual(municipality_history.status_code, 200)
+            self.assertEqual(len(municipality_history.json()), 3)
+            wrong_type = await client.get(
+                "/municipalities/auth/notifications",
+                headers={"Authorization": f"Bearer {user_token}"},
+            )
+            self.assertEqual(wrong_type.status_code, 401)
+
+    async def test_all_active_volunteer_devices_and_municipality_receive_alerts(self) -> None:
+        async with AsyncSessionLocal() as db:
+            inactive = await db.get(User, self.user_ids[2])
+            inactive.is_active = False
+            db.add_all(
+                [
+                    DeviceToken(
+                        user_id=self.user_ids[1],
+                        token=f"{self.token_prefix}-user-1-extra",
+                        platform=DevicePlatform.ANDROID.value,
+                    ),
+                    DeviceToken(
+                        municipality_id=self.municipality_id,
+                        token=f"{self.token_prefix}-municipality-extra",
+                        platform=DevicePlatform.ANDROID.value,
+                    ),
+                ]
+            )
+            await db.commit()
+
+        report = SimpleNamespace(
+            id=self.report_id,
+            reporter_id=self.user_ids[0],
+            municipality_id=self.municipality_id,
+            assigned_volunteer=SimpleNamespace(
+                id=self.volunteer_ids[0],
+                user=SimpleNamespace(full_name="Safe Volunteer", phone="0590000000"),
+            ),
+        )
+        expected = {
+            f"{self.token_prefix}-user-1",
+            f"{self.token_prefix}-user-1-extra",
+            f"{self.token_prefix}-municipality",
+            f"{self.token_prefix}-municipality-extra",
+        }
+        with patch.object(
+            notification_service, "send_notification", new_callable=AsyncMock
+        ) as send:
+            await notification_service.notify_report_created(report)
+            self.assertEqual(set(send.await_args.args[0]), expected)
+            await notification_service.notify_report_claimed(report)
+            self.assertEqual(
+                set(send.await_args.args[0]),
+                expected | {f"{self.token_prefix}-user-0"},
             )
 
     async def test_device_token_upsert_reassignment_and_owned_removal(self) -> None:

@@ -309,6 +309,8 @@ class FireReportIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_pin_image_counts_and_nearest_active_municipality(self) -> None:
         no_image = await self.create(self.user)
         self.assertEqual(no_image.municipality_id, self.near.id)
+        self.assertEqual(no_image.status, FireReportStatus.PENDING.value)
+        self.assertIsNone(no_image.assigned_volunteer_id)
         self.assertEqual(len(no_image.images), 0)
 
         for pin in (None, "9999"):

@@ -14,6 +14,7 @@ from app.features.municipalities.model import (  # noqa: F401
     Municipality,
     MunicipalitySession,
 )
+from app.features.notifications.model import NotificationEvent  # noqa: F401
 from app.features.report_images.model import ReportImage  # noqa: F401
 from app.features.users.model import User  # noqa: F401
 from app.features.volunteers.model import (  # noqa: F401
