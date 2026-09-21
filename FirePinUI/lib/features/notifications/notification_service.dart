@@ -81,6 +81,9 @@ class FirePinNotificationService implements AuthenticatedNotificationLifecycle {
       _providedMessaging ?? FirebaseMessaging.instance;
 
   Future<void> initialize() async {
+    if (kIsWeb) {
+      return;
+    }
     try {
       await _messaging.requestPermission(alert: true, badge: true, sound: true);
       await _messaging.setForegroundNotificationPresentationOptions(
