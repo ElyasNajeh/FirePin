@@ -8,6 +8,7 @@ import '../../core/ui/components.dart';
 import '../../theme/app_theme.dart';
 import '../auth/auth_models.dart';
 import '../onboarding/onboarding_models.dart';
+import '../notifications/notification_history.dart';
 import '../report/fire_report_repository.dart';
 import 'municipality_repository.dart';
 
@@ -17,6 +18,7 @@ enum MunicipalitySection {
   applications,
   volunteers,
   history,
+  notifications,
   account,
 }
 
@@ -26,10 +28,14 @@ class MunicipalityDashboard extends StatefulWidget {
     required this.account,
     required this.repository,
     required this.onLogout,
+    this.notificationHistory,
+    this.refreshRevision = 0,
   });
   final MunicipalityAccount account;
   final MunicipalityRepository repository;
   final Future<void> Function() onLogout;
+  final NotificationHistoryRepository? notificationHistory;
+  final int refreshRevision;
 
   @override
   State<MunicipalityDashboard> createState() => _MunicipalityDashboardState();
@@ -49,6 +55,16 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
       await widget.repository.loadVolunteerData();
     } on Object {
       // The repository exposes the error so the dashboard can offer retry.
+    }
+  }
+
+  Future<void> _openNotificationReport(int reportId) async {
+    try {
+      final report = await widget.repository.getReport(reportId);
+      if (!mounted) return;
+      await _openIncident(report);
+    } on Object {
+      if (mounted) showFeedback(context, 'تعذّر فتح البلاغ. حاول مرة أخرى.');
     }
   }
 
@@ -131,6 +147,11 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
                   title: Text(_label(item)),
                   onTap: () {
                     setState(() => _section = item);
+                    if (item == MunicipalitySection.overview ||
+                        item == MunicipalitySection.activeIncidents ||
+                        item == MunicipalitySection.history) {
+                      unawaited(_reloadVolunteerData());
+                    }
                     if (compact) Navigator.pop(context);
                   },
                 ),
@@ -172,6 +193,15 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
         MunicipalitySection.applications => _volunteerData(_applications()),
         MunicipalitySection.volunteers => _volunteerData(_volunteers()),
         MunicipalitySection.history => _incidents(resolved: true),
+        MunicipalitySection.notifications =>
+          widget.notificationHistory == null
+              ? const SurfaceCard(child: Text('خدمة التنبيهات غير متاحة.'))
+              : NotificationHistoryView(
+                  key: ValueKey('municipality-notifications-${widget.refreshRevision}'),
+                  load:
+                      widget.notificationHistory!.getMunicipalityNotifications,
+                  onOpenReport: _openNotificationReport,
+                ),
         MunicipalitySection.account => _account(),
       },
     ],
@@ -496,8 +526,8 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
     ),
   );
 
-  void _openIncident(MunicipalityFireReport incident) {
-    showDialog<void>(
+  Future<void> _openIncident(MunicipalityFireReport incident) async {
+    await showDialog<void>(
       context: context,
       builder: (_) => AnimatedBuilder(
         animation: widget.repository,
@@ -505,10 +535,14 @@ class _MunicipalityDashboardState extends State<MunicipalityDashboard> {
           final current = widget.repository.reports
               .where((item) => item.id == incident.id)
               .firstOrNull;
-          return MunicipalityReportDetailsDialog(incident: current ?? incident);
+          return MunicipalityReportDetailsDialog(
+            incident: current ?? incident,
+            reload: widget.repository.getReport,
+          );
         },
       ),
     );
+    await _reloadVolunteerData();
   }
 }
 
@@ -699,68 +733,123 @@ class _IncidentCard extends StatelessWidget {
   );
 }
 
-class MunicipalityReportDetailsDialog extends StatelessWidget {
-  const MunicipalityReportDetailsDialog({super.key, required this.incident});
+class MunicipalityReportDetailsDialog extends StatefulWidget {
+  const MunicipalityReportDetailsDialog({
+    super.key,
+    required this.incident,
+    this.reload,
+  });
   final MunicipalityFireReport incident;
+  final Future<MunicipalityFireReport> Function(int reportId)? reload;
+
   @override
-  Widget build(BuildContext context) => Dialog(
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 760, maxHeight: 760),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(22),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'تفاصيل البلاغ #${incident.id}',
-                    style: AppType.section,
+  State<MunicipalityReportDetailsDialog> createState() =>
+      _MunicipalityReportDetailsDialogState();
+}
+
+class _MunicipalityReportDetailsDialogState
+    extends State<MunicipalityReportDetailsDialog> {
+  late MunicipalityFireReport _incident = widget.incident;
+  bool _refreshing = false;
+  bool _refreshFailed = false;
+
+  @override
+  void didUpdateWidget(MunicipalityReportDetailsDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.incident.id == _incident.id &&
+        widget.incident.status != _incident.status) {
+      _incident = widget.incident;
+    }
+  }
+
+  Future<void> _refresh() async {
+    final reload = widget.reload;
+    if (reload == null || _refreshing) return;
+    setState(() {
+      _refreshing = true;
+      _refreshFailed = false;
+    });
+    try {
+      final updated = await reload(_incident.id);
+      if (mounted) setState(() => _incident = updated);
+    } on Object {
+      if (mounted) setState(() => _refreshFailed = true);
+    } finally {
+      if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final incident = _incident;
+    return Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760, maxHeight: 760),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'تفاصيل البلاغ #${incident.id}',
+                      style: AppType.section,
+                    ),
                   ),
-                ),
-                IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  tooltip: 'إغلاق',
-                ),
-              ],
-            ),
-            _StatusBadge(
-              _status(incident.status),
-              warning: !incident.isResolved,
-            ),
-            const SizedBox(height: 14),
-            _OperationsMap(incidents: [incident]),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 24,
-              runSpacing: 10,
-              children: [
-                _Detail('الموقع', incident.locationLabel),
-                _Detail('وقت البلاغ', _dateTime(incident.reportedAt)),
-                _Detail('المُبلّغ', incident.reporterName),
-                _Detail('هاتف المُبلّغ', incident.reporterPhone),
-                _Detail('رقم الهوية', incident.reporterNationalId),
-                _Detail('الجهة المسؤولة', incident.municipalityName),
-                _Detail(
-                  'المتطوع المعيّن',
-                  incident.assignedVolunteer?.fullName ?? 'غير معيّن',
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Text('المتطوع المعيّن', style: AppType.section),
-            const SizedBox(height: 8),
-            if (incident.assignedVolunteer == null)
-              Text('لم يتم تعيين متطوع بعد.', style: AppType.caption)
-            else
-              _ResponderCard(response: incident.assignedVolunteer!),
-          ],
+                  if (widget.reload != null)
+                    IconButton(
+                      key: const ValueKey('refresh-municipality-report-detail'),
+                      tooltip: 'تحديث حالة البلاغ',
+                      onPressed: _refreshing ? null : _refresh,
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    tooltip: 'إغلاق',
+                  ),
+                ],
+              ),
+              if (_refreshFailed)
+                const Text('تعذّر تحديث البلاغ. حاول مرة أخرى.'),
+              _StatusBadge(
+                _status(incident.status),
+                warning: !incident.isResolved,
+              ),
+              const SizedBox(height: 14),
+              _OperationsMap(incidents: [incident]),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 24,
+                runSpacing: 10,
+                children: [
+                  _Detail('الموقع', incident.locationLabel),
+                  _Detail('وقت البلاغ', _dateTime(incident.reportedAt)),
+                  _Detail('المُبلّغ', incident.reporterName),
+                  _Detail('هاتف المُبلّغ', incident.reporterPhone),
+                  _Detail('رقم الهوية', incident.reporterNationalId),
+                  _Detail('الجهة المسؤولة', incident.municipalityName),
+                  _Detail(
+                    'المتطوع المعيّن',
+                    incident.assignedVolunteer?.fullName ?? 'غير معيّن',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('المتطوع المعيّن', style: AppType.section),
+              const SizedBox(height: 8),
+              if (incident.assignedVolunteer == null)
+                Text('لم يتم تعيين متطوع بعد.', style: AppType.caption)
+              else
+                _ResponderCard(response: incident.assignedVolunteer!),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _ResponderCard extends StatelessWidget {
@@ -910,6 +999,7 @@ String _label(MunicipalitySection section) => switch (section) {
   MunicipalitySection.applications => 'طلبات التطوع',
   MunicipalitySection.volunteers => 'المتطوعون',
   MunicipalitySection.history => 'السجل',
+  MunicipalitySection.notifications => 'التنبيهات',
   MunicipalitySection.account => 'الحساب',
 };
 
@@ -919,5 +1009,6 @@ IconData _icon(MunicipalitySection section) => switch (section) {
   MunicipalitySection.applications => Icons.how_to_reg_outlined,
   MunicipalitySection.volunteers => Icons.volunteer_activism_outlined,
   MunicipalitySection.history => Icons.history_rounded,
+  MunicipalitySection.notifications => Icons.notifications_outlined,
   MunicipalitySection.account => Icons.account_circle_outlined,
 };

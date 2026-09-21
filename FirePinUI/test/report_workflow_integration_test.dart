@@ -140,6 +140,75 @@ void main() {
     expect(find.byKey(const ValueKey('resolve-fire-report')), findsNothing);
   });
 
+  testWidgets('citizen report detail refreshes authoritative assignment', (
+    tester,
+  ) async {
+    useTallTestView(tester);
+    final repository = MutableWorkflowRepository();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FireReportDetailScreen(
+          report: repository.report,
+          volunteer: false,
+          createdSuccessfully: true,
+          repository: repository,
+          location: const WorkflowLocation(),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('report-created-success')),
+      findsOneWidget,
+    );
+    repository.report = workflowReport(
+      FireReportStatus.assigned,
+      assignedUserId: 13,
+    );
+    await tester.tap(find.byKey(const ValueKey('refresh-fire-report-detail')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(repository.citizenDetailLoads, 1);
+    expect(
+      find.textContaining(repository.report.assignedVolunteer!.fullName),
+      findsWidgets,
+    );
+    expect(find.text(repository.report.assignedVolunteer!.phone), findsWidgets);
+  });
+
+  testWidgets('volunteer GPS marker survives route API failure', (
+    tester,
+  ) async {
+    useTallTestView(tester);
+    final repository = MutableWorkflowRepository(
+      initialReport: workflowReport(
+        FireReportStatus.assigned,
+        assignedUserId: 13,
+      ),
+      failRoute: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FireReportDetailScreen(
+          report: repository.report,
+          volunteer: true,
+          repository: repository,
+          location: const WorkflowLocation(),
+          viewerUserId: '13',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(repository.routeLoads, 1);
+    final map = tester.widget<FireReportMap>(find.byType(FireReportMap));
+    expect(map.origin?.latitude, 31.77);
+    expect(map.origin?.longitude, 35.23);
+    expect(find.byKey(const ValueKey('backend-route-polyline')), findsNothing);
+  });
+
   test(
     'municipality loads assigned report data from its read-only endpoint',
     () async {
@@ -202,6 +271,71 @@ void main() {
     repository.dispose();
   });
 
+  testWidgets('municipality report detail reloads authoritative status', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final report = MunicipalityFireReport(
+      id: 91,
+      status: FireReportStatus.assigned,
+      reportedAt: DateTime.utc(2026, 9, 21),
+      reporterName: 'Reporter',
+      reporterPhone: '0591111111',
+      reporterNationalId: '123456789',
+      locationLabel: '31.77, 35.23',
+      latitude: 31.77,
+      longitude: 35.23,
+      municipalityName: 'Municipality',
+      assignedVolunteer: const AssignedVolunteer(
+        id: 7,
+        userId: 13,
+        fullName: 'Assigned Volunteer',
+        phone: '0590000000',
+      ),
+    );
+    var reloads = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MunicipalityReportDetailsDialog(
+            incident: report,
+            reload: (reportId) async {
+              reloads++;
+              expect(reportId, report.id);
+              return MunicipalityFireReport(
+                id: report.id,
+                status: FireReportStatus.resolved,
+                reportedAt: report.reportedAt,
+                reporterName: report.reporterName,
+                reporterPhone: report.reporterPhone,
+                reporterNationalId: report.reporterNationalId,
+                locationLabel: report.locationLabel,
+                latitude: report.latitude,
+                longitude: report.longitude,
+                municipalityName: report.municipalityName,
+                assignedVolunteer: report.assignedVolunteer,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('refresh-municipality-report-detail')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(reloads, 1);
+    expect(find.text('تمت معالجة الحالة'), findsOneWidget);
+    expect(find.text('Assigned Volunteer'), findsWidgets);
+    expect(find.byKey(const ValueKey('claim-fire-report')), findsNothing);
+    expect(find.byKey(const ValueKey('resolve-fire-report')), findsNothing);
+  });
+
   test('municipality API failure has no report mock fallback', () async {
     final fixture = MunicipalityWorkflowFixture()..fail = true;
     final repository = await fixture.repository();
@@ -217,6 +351,8 @@ void main() {
   testWidgets('volunteer home is backed by the real report repository', (
     tester,
   ) async {
+    useTallTestView(tester);
+    final reports = MutableWorkflowRepository();
     final session = OnboardingSession()
       ..accountId = '13'
       ..role = UsageRole.volunteer;
@@ -227,13 +363,30 @@ void main() {
           onReport: (_) {},
           session: session,
           onLogout: () async {},
-          reportRepository: MutableWorkflowRepository(),
+          reportRepository: reports,
           location: const WorkflowLocation(),
         ),
       ),
     );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
 
     expect(find.byKey(const ValueKey('volunteer-ready')), findsOneWidget);
+    expect(find.byKey(const ValueKey('citizen-location-home')), findsOneWidget);
+    expect(find.byKey(const ValueKey('create-fire-report')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('volunteer-municipality-reports')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('fire-report-91')), findsWidgets);
+    expect(reports.report.status, FireReportStatus.pending);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('fire-report-91')).last,
+    );
+    await tester.tap(find.byKey(const ValueKey('fire-report-91')).last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    expect(find.byKey(const ValueKey('claim-fire-report')), findsOneWidget);
   });
 }
 
@@ -298,13 +451,16 @@ class MutableWorkflowRepository implements FireReportRepository {
   MutableWorkflowRepository({
     FireReport? initialReport,
     this.conflictOnClaim = false,
+    this.failRoute = false,
   }) : report = initialReport ?? workflowReport(FireReportStatus.pending);
 
   FireReport report;
   final bool conflictOnClaim;
+  final bool failRoute;
   int claims = 0;
   int resolutions = 0;
   int detailLoads = 0;
+  int citizenDetailLoads = 0;
   int routeLoads = 0;
 
   @override
@@ -344,6 +500,7 @@ class MutableWorkflowRepository implements FireReportRepository {
     LocationFix origin,
   ) async {
     routeLoads++;
+    if (failRoute) throw StateError('Valhalla unavailable');
     return const FireReportRoute(
       geometry: [
         RoutePoint(latitude: 31.77, longitude: 35.23),
@@ -358,7 +515,10 @@ class MutableWorkflowRepository implements FireReportRepository {
   Future<Uint8List> getImage(int reportId, int imageId) async => Uint8List(0);
 
   @override
-  Future<FireReport> getMyReport(int reportId) async => report;
+  Future<FireReport> getMyReport(int reportId) async {
+    citizenDetailLoads++;
+    return report;
+  }
 
   @override
   Future<List<FireReport>> getMyReports() async => [report];

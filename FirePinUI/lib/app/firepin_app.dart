@@ -12,6 +12,7 @@ import '../features/municipality/municipality_dashboard.dart';
 import '../features/onboarding/onboarding_models.dart';
 import '../features/onboarding/volunteer_application_flow.dart';
 import '../features/report/fire_reports_screen.dart';
+import '../features/report/fire_report_repository.dart';
 import '../features/report/fire_camera_screen.dart';
 import '../core/network/api_client.dart';
 import '../theme/app_theme.dart';
@@ -38,6 +39,7 @@ class _FirePinAppState extends State<FirePinApp> {
   StreamSubscription<String>? _notificationTapSubscription;
   String? _processingReportId;
   String? _openReportId;
+  int _reportViewRevision = 0;
 
   @override
   void initState() {
@@ -95,11 +97,19 @@ class _FirePinAppState extends State<FirePinApp> {
       final navigator = _navigatorKey.currentState!;
       if (status == AuthStatus.user) {
         final account = _services.authController.user!;
-        final volunteer = account.role == UsageRole.volunteer;
         final repository = _services.reportRepository;
-        final report = volunteer
-            ? await repository.getVolunteerReport(reportId)
-            : await repository.getMyReport(reportId);
+        var volunteer = false;
+        late FireReport report;
+        try {
+          report = await repository.getMyReport(reportId);
+        } on DioException catch (error) {
+          if (account.role != UsageRole.volunteer ||
+              error.response?.statusCode != 404) {
+            rethrow;
+          }
+          report = await repository.getVolunteerReport(reportId);
+          volunteer = true;
+        }
         if (!mounted || _services.authController.status != AuthStatus.user) {
           return;
         }
@@ -131,7 +141,10 @@ class _FirePinAppState extends State<FirePinApp> {
             settings: RouteSettings(
               name: '/notifications/municipality/fire-reports/$reportIdText',
             ),
-            builder: (_) => MunicipalityReportDetailsDialog(incident: report),
+            builder: (_) => MunicipalityReportDetailsDialog(
+              incident: report,
+              reload: _services.operations.getReport,
+            ),
           ),
         );
       }
@@ -150,6 +163,10 @@ class _FirePinAppState extends State<FirePinApp> {
     } finally {
       _processingReportId = null;
       _openReportId = null;
+      if (mounted) setState(() => _reportViewRevision++);
+      if (_services.authController.status == AuthStatus.municipality) {
+        unawaited(_services.operations.loadVolunteerData().catchError((Object _) {}));
+      }
       _scheduleNotificationNavigation();
     }
   }
@@ -196,6 +213,8 @@ class _FirePinAppState extends State<FirePinApp> {
           AuthStatus.municipality => MunicipalityDashboard(
             account: _services.authController.municipality!,
             repository: _services.operations,
+            notificationHistory: _services.notificationHistory,
+            refreshRevision: _reportViewRevision,
             onLogout: _services.authController.logout,
           ),
         },
@@ -251,6 +270,7 @@ class _FirePinAppState extends State<FirePinApp> {
                 repository: _services.reportRepository,
                 location: _services.location,
                 viewerUserId: account.id,
+                createdSuccessfully: true,
               ),
             ),
           );
@@ -259,7 +279,9 @@ class _FirePinAppState extends State<FirePinApp> {
     }
     return HomeScreen(
       session: session,
+      refreshRevision: _reportViewRevision,
       reportRepository: _services.reportRepository,
+      notificationHistory: _services.notificationHistory,
       location: _services.location,
       onReport: (location) {
         setState(() {

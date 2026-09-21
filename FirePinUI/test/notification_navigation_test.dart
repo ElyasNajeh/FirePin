@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dio/dio.dart';
 import 'package:firepin_ui/app/app_services.dart';
 import 'package:firepin_ui/app/firepin_app.dart';
 import 'package:firepin_ui/core/network/api_client.dart';
@@ -8,6 +9,7 @@ import 'package:firepin_ui/features/auth/auth_repositories.dart';
 import 'package:firepin_ui/features/municipality/municipality_dashboard.dart';
 import 'package:firepin_ui/features/municipality/municipality_repository.dart';
 import 'package:firepin_ui/features/notifications/notification_service.dart';
+import 'package:firepin_ui/features/notifications/notification_history.dart';
 import 'package:firepin_ui/features/onboarding/onboarding_models.dart';
 import 'package:firepin_ui/features/report/fire_report_repository.dart';
 import 'package:firepin_ui/features/report/fire_reports_screen.dart';
@@ -48,10 +50,27 @@ void main() {
     expect(find.byType(FireReportDetailScreen), findsOneWidget);
   });
 
+  testWidgets('citizen inbox opens the real report through the app shell', (
+    tester,
+  ) async {
+    final fixture = NotificationNavigationFixture();
+    await fixture.pumpUser(tester);
+    await tester.tap(find.text('التنبيهات').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(find.byKey(const ValueKey('notification-7')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('notification-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(fixture.reports.myDetailLoads, 1);
+    expect(find.byType(FireReportDetailScreen), findsOneWidget);
+  });
+
   testWidgets('foreground volunteer notification uses volunteer endpoint', (
     tester,
   ) async {
     final fixture = NotificationNavigationFixture();
+    fixture.reports.ownReportMissing = true;
     await fixture.users.loginUser(
       nationalId: DemoAuthRepository.volunteerNationalId,
       pin: DemoAuthRepository.volunteerPin,
@@ -65,7 +84,46 @@ void main() {
     );
     await fixture.pumpNavigation(tester);
 
-    expect(fixture.reports.myDetailLoads, 0);
+    expect(fixture.reports.myDetailLoads, 1);
+    expect(fixture.reports.volunteerDetailLoads, 1);
+    expect(find.byType(FireReportDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('volunteer can open their own citizen report notification', (
+    tester,
+  ) async {
+    final fixture = NotificationNavigationFixture();
+    await fixture.users.loginUser(
+      nationalId: DemoAuthRepository.volunteerNationalId,
+      pin: DemoAuthRepository.volunteerPin,
+    );
+    await fixture.pumpUser(tester);
+    fixture.notifications.handleReportTapForTest(
+      reportId: 91,
+      type: 'fire_report_claimed',
+      messageId: 'volunteer-own-91',
+    );
+    await fixture.pumpNavigation(tester);
+    expect(fixture.reports.myDetailLoads, 1);
+    expect(fixture.reports.volunteerDetailLoads, 0);
+    expect(find.byType(FireReportDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('volunteer inbox opens a municipality report', (tester) async {
+    final fixture = NotificationNavigationFixture();
+    fixture.reports.ownReportMissing = true;
+    await fixture.users.loginUser(
+      nationalId: DemoAuthRepository.volunteerNationalId,
+      pin: DemoAuthRepository.volunteerPin,
+    );
+    await fixture.pumpUser(tester);
+    await tester.tap(find.text('التنبيهات').last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.ensureVisible(find.byKey(const ValueKey('notification-7')));
+    await tester.tap(find.byKey(const ValueKey('notification-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
     expect(fixture.reports.volunteerDetailLoads, 1);
     expect(find.byType(FireReportDetailScreen), findsOneWidget);
   });
@@ -87,6 +145,26 @@ void main() {
     expect(find.byType(MunicipalityReportDetailsDialog), findsOneWidget);
     expect(find.byKey(const ValueKey('claim-fire-report')), findsNothing);
     expect(find.byKey(const ValueKey('resolve-fire-report')), findsNothing);
+  });
+
+  testWidgets('municipality inbox opens its read-only real report', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1400, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final fixture = NotificationNavigationFixture();
+    await fixture.pumpMunicipality(tester);
+    await tester.tap(find.text('التنبيهات').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    await tester.tap(find.byKey(const ValueKey('notification-7')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 30));
+    expect(fixture.operations.detailLoads, 1);
+    expect(find.byType(MunicipalityReportDetailsDialog), findsOneWidget);
+    expect(find.byKey(const ValueKey('claim-fire-report')), findsNothing);
   });
 
   testWidgets('terminated-state tap waits for authentication restoration', (
@@ -160,6 +238,7 @@ class NotificationNavigationFixture {
   final sessions = MemorySessionRepository();
   final reports = RecordingReportRepository();
   final operations = RecordingMunicipalityRepository();
+  final history = RecordingHistoryRepository();
 
   Future<void> pumpUser(
     WidgetTester tester, {
@@ -193,6 +272,7 @@ class NotificationNavigationFixture {
       municipalityAuth: municipalities,
       sessions: sessions,
       notifications: notifications,
+      notificationHistory: history,
     );
     await tester.pumpWidget(FirePinApp(services: services));
     await tester.pump();
@@ -207,15 +287,49 @@ class NotificationNavigationFixture {
   }
 }
 
+class RecordingHistoryRepository implements NotificationHistoryRepository {
+  final event = NotificationEntry(
+    id: 7,
+    fireReportId: 91,
+    eventType: 'new_report',
+    title: 'بلاغ حريق جديد',
+    body: 'افتح البلاغ',
+    createdAt: DateTime.utc(2026, 9, 21),
+  );
+
+  @override
+  Future<List<NotificationEntry>> getUserNotifications() async => [event];
+
+  @override
+  Future<List<NotificationEntry>> getMunicipalityNotifications() async => [
+    NotificationEntry(
+      id: event.id,
+      fireReportId: 1042,
+      eventType: event.eventType,
+      title: event.title,
+      body: event.body,
+      createdAt: event.createdAt,
+    ),
+  ];
+}
+
 class RecordingReportRepository extends FakeReports {
   int myDetailLoads = 0;
   int volunteerDetailLoads = 0;
   bool expire = false;
+  bool ownReportMissing = false;
 
   @override
   Future<FireReport> getMyReport(int reportId) async {
     myDetailLoads++;
     if (expire) throw const AuthenticationException('expired');
+    if (ownReportMissing) {
+      final options = RequestOptions(path: '/fire-reports/me/$reportId');
+      throw DioException(
+        requestOptions: options,
+        response: Response<void>(requestOptions: options, statusCode: 404),
+      );
+    }
     return FakeReports.report;
   }
 

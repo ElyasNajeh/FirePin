@@ -7,6 +7,7 @@ import '../features/auth/auth_controller.dart';
 import '../features/auth/auth_repositories.dart';
 import '../features/municipality/municipality_repository.dart';
 import '../features/notifications/notification_service.dart';
+import '../features/notifications/notification_history.dart';
 import '../features/notifications/notification_api.dart';
 import '../features/onboarding/onboarding_services.dart';
 import '../features/report/fire_report_repository.dart';
@@ -26,6 +27,7 @@ class AppServices {
     MunicipalityAuthRepository? municipalityAuth,
     SessionRepository? sessions,
     FirePinNotificationService? notifications,
+    NotificationHistoryRepository? notificationHistory,
     String? apiBaseUrl,
     TokenStorage? tokenStorage,
     ApiClient? userApiClient,
@@ -66,6 +68,9 @@ class AppServices {
             municipalityApiClient: municipalityApi,
           ),
         );
+    this.notificationHistory =
+        notificationHistory ??
+        ApiNotificationHistoryRepository(userApi, municipalityApi);
     authController = AuthController(
       users: userAuth,
       municipalities: authorityAuth,
@@ -84,5 +89,6 @@ class AppServices {
   late final MunicipalityDirectoryRepository municipalityDirectory;
   late final SessionRepository sessions;
   late final FirePinNotificationService notifications;
+  late final NotificationHistoryRepository notificationHistory;
   late final AuthController authController;
 }

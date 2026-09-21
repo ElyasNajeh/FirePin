@@ -62,6 +62,10 @@ void main() {
     expect(form.fields.any((field) => field.key == 'pin'), isFalse);
     expect(form.files, hasLength(5));
     expect(form.files.every((file) => file.key == 'images'), isTrue);
+    expect(
+      fixture.adapter.requests.single.contentType,
+      startsWith('multipart/form-data'),
+    );
     expect(form.files.first.value.length, photos.first.length);
     expect(form.files.last.value.filename, 'fire-report-5.jpg');
     expect(form.fields.any((field) => field.key == 'municipality_id'), isFalse);

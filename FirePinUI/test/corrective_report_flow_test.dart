@@ -234,6 +234,62 @@ void main() {
     expect(reports.imageCount, 0);
     expect(submitted?.id, FakeReports.report.id);
   });
+
+  testWidgets(
+    'backend location validation is shown instead of generic failure',
+    (tester) async {
+      _mobileSize(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: FireCameraScreen(
+            services: fakeServices(
+              reports: ValidationFailingReports(),
+              location: FakeLocation(),
+            ),
+            session: _citizenSession()
+              ..location = const LocationFix(31.78, 35.24, 8),
+            onSubmitted: (_) {},
+            onClose: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      await _tapText(tester, 'إرسال البلاغ بدون صورة');
+      await tester.enterText(
+        find.byKey(const ValueKey('رمز تأكيد البلاغ')),
+        '1234',
+      );
+      await _tapText(tester, 'تأكيد الإرسال');
+
+      expect(find.textContaining('إحداثيات الموقع غير مقبولة'), findsOneWidget);
+    },
+  );
+}
+
+class ValidationFailingReports extends FakeReports {
+  @override
+  Future<FireReport> submit({
+    required List<Uint8List> images,
+    String? pin,
+    required LocationFix location,
+  }) async {
+    final options = RequestOptions(path: '/fire-reports');
+    throw DioException(
+      requestOptions: options,
+      response: Response<Map<String, dynamic>>(
+        requestOptions: options,
+        statusCode: 422,
+        data: {
+          'detail': [
+            {
+              'loc': ['body', 'latitude'],
+              'msg': 'Invalid latitude',
+            },
+          ],
+        },
+      ),
+    );
+  }
 }
 
 class DeferredLocation extends FakeLocation {

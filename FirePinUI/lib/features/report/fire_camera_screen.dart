@@ -131,6 +131,11 @@ class _FireCameraScreenState extends State<FireCameraScreen> {
       }
     } on DioException catch (error) {
       if (!mounted) return;
+      final validationMessage = _reportValidationMessage(error);
+      if (validationMessage != null) {
+        setState(() => _message = validationMessage);
+        return;
+      }
       final detail = _apiDetail(error);
       setState(() {
         _message =
@@ -598,4 +603,48 @@ String? _apiDetail(DioException error) {
   return data is Map<String, dynamic> && data['detail'] is String
       ? data['detail'] as String
       : null;
+}
+
+String? _reportValidationMessage(DioException error) {
+  final status = error.response?.statusCode;
+  final data = error.response?.data;
+  final detail = data is Map ? data['detail'] : null;
+  if (status == 422) {
+    if (detail == 'PIN verification failed') {
+      return 'رمز الدخول غير صحيح. لم يتم إرسال البلاغ.';
+    }
+    if (detail == 'PIN is required when no images are provided') {
+      return 'أدخل رمز الدخول لإرسال البلاغ بدون صور.';
+    }
+    if (detail == 'A fire report can contain at most 5 images') {
+      return 'يمكن إرفاق خمس صور كحد أقصى.';
+    }
+    if (detail == 'Uploaded file is not a valid supported image') {
+      return 'إحدى الصور غير صالحة أو غير مدعومة. أزلها والتقط صورة جديدة.';
+    }
+    if (detail is List) {
+      final fields = detail
+          .whereType<Map>()
+          .expand((issue) => issue['loc'] is List ? issue['loc'] as List : const [])
+          .map((part) => part.toString())
+          .toSet();
+      if (fields.contains('latitude') || fields.contains('longitude')) {
+        return 'إحداثيات الموقع غير مقبولة. أعد تحديد موقعك وحاول مجددًا.';
+      }
+      if (fields.contains('images')) {
+        return 'تعذّر قبول الصور. أزلها والتقط صورًا جديدة.';
+      }
+    }
+    return 'بيانات البلاغ غير مقبولة (422). تحقّق من الموقع والصور وحاول مجددًا.';
+  }
+  if (status == 503 && detail == 'No active municipalities are available') {
+    return 'لا توجد بلدية نشطة لاستقبال البلاغ حاليًا.';
+  }
+  if (status == 413) {
+    return 'الصور كبيرة جدًا لإرسالها. التقط صورًا أقل وحاول مجددًا.';
+  }
+  if (error.response == null) {
+    return 'تعذّر الاتصال بالخادم. تحقّق من الإنترنت ثم حاول مجددًا.';
+  }
+  return null;
 }

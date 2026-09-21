@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -9,6 +10,7 @@ import '../../core/ui/motion.dart';
 import '../../theme/app_theme.dart';
 import '../account/account_screen.dart';
 import '../onboarding/onboarding_models.dart';
+import '../notifications/notification_history.dart';
 import '../report/fire_report_repository.dart';
 import '../report/fire_reports_screen.dart';
 
@@ -21,6 +23,8 @@ class HomeScreen extends StatefulWidget {
     required this.onLogout,
     required this.reportRepository,
     required this.location,
+    this.notificationHistory,
+    this.refreshRevision = 0,
     this.onApplyVolunteer,
   });
 
@@ -30,6 +34,8 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback? onApplyVolunteer;
   final FireReportRepository reportRepository;
   final LocationService location;
+  final NotificationHistoryRepository? notificationHistory;
+  final int refreshRevision;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -39,6 +45,37 @@ class _HomeScreenState extends State<HomeScreen> {
   AppSection _section = AppSection.home;
 
   void _changeSection(AppSection section) => setState(() => _section = section);
+
+  Future<void> _openNotificationReport(int reportId) async {
+    try {
+      var volunteerReport = false;
+      late FireReport report;
+      try {
+        report = await widget.reportRepository.getMyReport(reportId);
+      } on DioException catch (error) {
+        if (widget.session.role != UsageRole.volunteer ||
+            error.response?.statusCode != 404) {
+          rethrow;
+        }
+        report = await widget.reportRepository.getVolunteerReport(reportId);
+        volunteerReport = true;
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => FireReportDetailScreen(
+            report: report,
+            volunteer: volunteerReport,
+            repository: widget.reportRepository,
+            location: widget.location,
+            viewerUserId: widget.session.accountId,
+          ),
+        ),
+      );
+    } on Object {
+      if (mounted) showFeedback(context, 'تعذّر فتح البلاغ. حاول مرة أخرى.');
+    }
+  }
 
   @override
   Widget build(BuildContext context) => AppShell(
@@ -50,13 +87,14 @@ class _HomeScreenState extends State<HomeScreen> {
           : AppMotion.selection,
       child: switch (_section) {
         AppSection.home => _buildHome(),
-        AppSection.alerts => FireReportsScreen(
-          key: const ValueKey('real-reports'),
-          role: widget.session.role,
-          repository: widget.reportRepository,
-          location: widget.location,
-          viewerUserId: widget.session.accountId,
-        ),
+        AppSection.alerts =>
+          widget.notificationHistory == null
+              ? const SurfaceCard(child: Text('خدمة التنبيهات غير متاحة.'))
+              : NotificationHistoryView(
+                  key: ValueKey('real-notifications-${widget.refreshRevision}'),
+                  load: widget.notificationHistory!.getUserNotifications,
+                  onOpenReport: _openNotificationReport,
+                ),
         AppSection.account => AccountScreen(
           key: const ValueKey('account'),
           session: widget.session,
@@ -67,16 +105,46 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
-  Widget _buildHome() => widget.session.role == UsageRole.volunteer
-      ? _VolunteerReadyContent(
+  Widget _buildHome() => Column(
+    key: ValueKey('real-home-${widget.refreshRevision}'),
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _CitizenHomeContent(
+        key: const ValueKey('citizen-location-home'),
+        locationService: widget.location,
+        onReport: widget.onReport,
+      ),
+      const SizedBox(height: 18),
+      SizedBox(
+        height: 280,
+        child: FireReportsScreen(
+          key: const ValueKey('citizen-own-reports'),
+          role: UsageRole.citizen,
+          repository: widget.reportRepository,
+          location: widget.location,
+          viewerUserId: widget.session.accountId,
+        ),
+      ),
+      if (widget.session.role == UsageRole.volunteer) ...[
+        const SizedBox(height: 18),
+        _VolunteerReadyContent(
           key: const ValueKey('volunteer-ready'),
           onOpenAlerts: () => _changeSection(AppSection.alerts),
-        )
-      : _CitizenHomeContent(
-          key: const ValueKey('citizen-location-home'),
-          locationService: widget.location,
-          onReport: widget.onReport,
-        );
+        ),
+        const SizedBox(height: 18),
+        SizedBox(
+          height: 360,
+          child: FireReportsScreen(
+            key: const ValueKey('volunteer-municipality-reports'),
+            role: UsageRole.volunteer,
+            repository: widget.reportRepository,
+            location: widget.location,
+            viewerUserId: widget.session.accountId,
+          ),
+        ),
+      ],
+    ],
+  );
 }
 
 class _CitizenHomeContent extends StatefulWidget {
@@ -170,6 +238,17 @@ class _CitizenHomeContentState extends State<_CitizenHomeContent> {
     children: [
       Text('موقعك الحالي', style: AppType.section),
       const SizedBox(height: 10),
+      AppButton(
+        '🔥 إبلاغ عن حريق',
+        key: const ValueKey('create-fire-report'),
+        emergency: true,
+        minHeight: 72,
+        fontSize: 21,
+        onPressed: _location == null || _loading
+            ? null
+            : () => widget.onReport(_location!),
+      ),
+      const SizedBox(height: 12),
       if (_loading)
         const SurfaceCard(
           child: SizedBox(
@@ -220,17 +299,6 @@ class _CitizenHomeContentState extends State<_CitizenHomeContent> {
           onTileError: _handleTileError,
           onRetryMap: _retryMap,
         ),
-      const SizedBox(height: 18),
-      AppButton(
-        '🔥 إبلاغ عن حريق',
-        key: const ValueKey('create-fire-report'),
-        emergency: true,
-        minHeight: 72,
-        fontSize: 21,
-        onPressed: _location == null || _loading
-            ? null
-            : () => widget.onReport(_location!),
-      ),
       const SizedBox(height: 10),
       Text(
         _location == null

@@ -51,7 +51,16 @@ class _FireReportsScreenState extends State<FireReportsScreen> {
       final reports = _volunteer
           ? await widget.repository.getVolunteerReports()
           : await widget.repository.getMyReports();
-      if (mounted) setState(() => _reports = reports);
+      final visible = [...reports];
+      if (_volunteer) {
+        visible.sort((a, b) {
+          final aPending = a.status == FireReportStatus.pending;
+          final bPending = b.status == FireReportStatus.pending;
+          if (aPending != bPending) return aPending ? -1 : 1;
+          return b.id.compareTo(a.id);
+        });
+      }
+      if (mounted) setState(() => _reports = visible);
     } on Object catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
@@ -76,7 +85,7 @@ class _FireReportsScreenState extends State<FireReportsScreen> {
           ),
         ),
       );
-      if (_volunteer) await _load();
+      if (mounted) await _load();
     } catch (_) {
       if (mounted) showFeedback(context, 'تعذّر تحميل تفاصيل البلاغ.');
     }
@@ -89,7 +98,19 @@ class _FireReportsScreenState extends State<FireReportsScreen> {
       key: const ValueKey('real-fire-report-list'),
       physics: const AlwaysScrollableScrollPhysics(),
       children: [
-        PageTitle(_volunteer ? 'بلاغات البلدية' : 'بلاغاتي'),
+        Row(
+          children: [
+            Expanded(
+              child: PageTitle(_volunteer ? 'بلاغات البلدية' : 'بلاغاتي'),
+            ),
+            IconButton(
+              key: const ValueKey('refresh-fire-reports'),
+              tooltip: 'تحديث البلاغات',
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
         if (_loading)
           const Padding(
             padding: EdgeInsets.all(48),
@@ -137,6 +158,7 @@ class FireReportDetailScreen extends StatefulWidget {
     required this.repository,
     required this.location,
     this.viewerUserId,
+    this.createdSuccessfully = false,
   });
 
   final FireReport report;
@@ -144,6 +166,7 @@ class FireReportDetailScreen extends StatefulWidget {
   final FireReportRepository repository;
   final LocationService location;
   final String? viewerUserId;
+  final bool createdSuccessfully;
 
   @override
   State<FireReportDetailScreen> createState() => _FireReportDetailScreenState();
@@ -173,7 +196,9 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
   }
 
   Future<void> _reloadReport() async {
-    final report = await widget.repository.getVolunteerReport(_report.id);
+    final report = widget.volunteer
+        ? await widget.repository.getVolunteerReport(_report.id)
+        : await widget.repository.getMyReport(_report.id);
     if (!mounted) return;
     setState(() {
       _report = report;
@@ -240,6 +265,11 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
     });
     try {
       await _reloadReport();
+      if (widget.volunteer &&
+          _report.status == FireReportStatus.assigned &&
+          _assignedToMe) {
+        await _loadRoute();
+      }
     } on Object catch (error) {
       if (mounted) setState(() => _actionError = error);
     } finally {
@@ -256,6 +286,8 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
     });
     try {
       final origin = await widget.location.requestCurrentPosition();
+      if (!mounted) return;
+      setState(() => _origin = origin);
       final route = await widget.repository.getVolunteerRoute(
         _report.id,
         origin,
@@ -275,10 +307,27 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('بلاغ #${_report.id}')),
+    appBar: AppBar(
+      title: Text('بلاغ #${_report.id}'),
+      actions: [
+        IconButton(
+          key: const ValueKey('refresh-fire-report-detail'),
+          tooltip: 'تحديث حالة البلاغ',
+          onPressed: _acting ? null : _retryReload,
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    ),
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [
+        if (widget.createdSuccessfully)
+          const SurfaceCard(
+            key: ValueKey('report-created-success'),
+            child: Text(
+              'تم إرسال بلاغ الحريق بنجاح. لمتابعة بلاغك، اذهب إلى التنبيهات.',
+            ),
+          ),
         FireReportMap(report: _report, origin: _origin, route: _route),
         const SizedBox(height: 12),
         if (_routing)
@@ -288,13 +337,33 @@ class _FireReportDetailScreenState extends State<FireReportDetailScreen> {
             warning: true,
             child: Column(
               children: [
-                const Text('تعذّر تحميل مسار الطريق الحقيقي.'),
+                Text(
+                  _routeError is LocationFailure
+                      ? locationExplanation(
+                          (_routeError! as LocationFailure).problem,
+                        )
+                      : 'تعذّر تحميل مسار الطريق الحقيقي.',
+                ),
                 const SizedBox(height: 8),
                 AppButton(
                   'إعادة المحاولة',
                   secondary: true,
                   onPressed: _loadRoute,
                 ),
+                if (_routeError is LocationFailure &&
+                    ((_routeError! as LocationFailure).problem ==
+                            LocationProblem.permanentlyDenied ||
+                        (_routeError! as LocationFailure).problem ==
+                            LocationProblem.serviceDisabled))
+                  AppButton(
+                    'فتح الإعدادات',
+                    secondary: true,
+                    onPressed: () => widget.location.openSettings(
+                      locationService:
+                          (_routeError! as LocationFailure).problem ==
+                          LocationProblem.serviceDisabled,
+                    ),
+                  ),
               ],
             ),
           )
